@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bakery">
+<meta name="theme-color" content="#3D1F0D">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIiB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCI+CiAgPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSI0MCIgZmlsbD0iIzNEMUYwRCIvPgogIDx0ZXh0IHg9IjkwIiB5PSIxMTAiIGZvbnQtc2l6ZT0iOTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzZXJpZiI+8J+lljwvdGV4dD4KICA8dGV4dCB4PSI5MCIgeT0iMTYyIiBmb250LXNpemU9IjE4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iI0UwN0IzOSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGxldHRlci1zcGFjaW5nPSIyIj5CQUtFUlk8L3RleHQ+Cjwvc3ZnPg==">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIiB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCI+CiAgPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSI0MCIgZmlsbD0iIzNEMUYwRCIvPgogIDx0ZXh0IHg9IjkwIiB5PSIxMTAiIGZvbnQtc2l6ZT0iOTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzZXJpZiI+8J+lljwvdGV4dD4KICA8dGV4dCB4PSI5MCIgeT0iMTYyIiBmb250LXNpemU9IjE4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iI0UwN0IzOSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGxldHRlci1zcGFjaW5nPSIyIj5CQUtFUlk8L3RleHQ+Cjwvc3ZnPg==">
+<title>🥖 Bakery Delivery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brown:     #3D1F0D;
+    --rust:      #B84A1E;
+    --amber:     #E07B39;
+    --cream:     #FDF6EE;
+    --warm-white:#FFFBF7;
+    --muted:     #9C7B6A;
+    --border:    #EAD9C8;
+    --green:     #2D7A4F;
+    --green-bg:  #EAF5EE;
+    --red:       #C0392B;
+    --red-bg:    #FDECEA;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--cream);
+    color: var(--brown);
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--brown);
+    padding: env(safe-area-inset-top, 12px) 20px 0;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  }
+  .topbar-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-icon { font-size: 24px; }
+  .brand-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px; font-weight: 900;
+    color: #fff; letter-spacing: -0.3px;
+  }
+  .date-badge {
+    background: rgba(255,255,255,0.15);
+    color: #fff; font-size: 12px; font-weight: 500;
+    padding: 5px 12px; border-radius: 20px;
+    letter-spacing: 0.3px;
+  }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex; background: var(--brown);
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .tab {
+    flex: 1; text-align: center;
+    padding: 10px 4px 12px;
+    font-size: 11px; font-weight: 600;
+    color: rgba(255,255,255,0.5);
+    cursor: pointer; transition: all .2s;
+    letter-spacing: 0.5px; text-transform: uppercase;
+    border-bottom: 3px solid transparent;
+  }
+  .tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .tab-icon { display: block; font-size: 18px; margin-bottom: 2px; }
+
+  /* ── PAGES ── */
+  .page { display: none; padding: 0 0 100px; }
+  .page.active { display: block; }
+
+  /* ── SUMMARY STRIP ── */
+  .summary-strip {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 0; background: var(--warm-white);
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-card {
+    padding: 14px 10px; text-align: center;
+    border-right: 1px solid var(--border);
+  }
+  .summary-card:last-child { border-right: none; }
+  .summary-val {
+    font-family: 'Playfair Display', serif;
+    font-size: 26px; font-weight: 700;
+    color: var(--rust); line-height: 1;
+  }
+  .summary-lbl {
+    font-size: 10px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-top: 3px;
+  }
+
+  /* ── SECTION HEADER ── */
+  .section-header {
+    padding: 16px 20px 8px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px; font-weight: 700; color: var(--brown);
+  }
+  .section-hint { font-size: 12px; color: var(--muted); }
+
+  /* ── STORE CARD ── */
+  .store-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+
+  .store-card {
+    background: var(--warm-white);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .store-card.has-order {
+    border-color: var(--amber);
+    box-shadow: 0 2px 12px rgba(184,74,30,0.12);
+  }
+
+  .store-card-header {
+    display: flex; align-items: center;
+    padding: 12px 14px; gap: 12px;
+    cursor: pointer;
+  }
+  .store-seq {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--border); color: var(--muted);
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all .2s;
+  }
+  .store-card.has-order .store-seq {
+    background: var(--rust); color: #fff;
+  }
+  .store-info { flex: 1; min-width: 0; }
+  .store-name {
+    font-size: 15px; font-weight: 600; color: var(--brown);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .store-area { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+  .store-total-badge {
+    background: var(--rust); color: #fff;
+    font-size: 13px; font-weight: 700;
+    padding: 4px 10px; border-radius: 20px;
+    opacity: 0; transform: scale(0.8);
+    transition: all .2s;
+  }
+  .store-card.has-order .store-total-badge { opacity: 1; transform: scale(1); }
+
+  /* ── QTY INPUTS (inside card) ── */
+  .store-inputs {
+    padding: 0 14px 14px;
+    display: none;
+    flex-direction: column; gap: 10px;
+  }
+  .store-card.expanded .store-inputs { display: flex; }
+
+  .input-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .input-label {
+    flex: 1; font-size: 13px; font-weight: 500; color: var(--brown);
+  }
+  .input-label small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+
+  .qty-control {
+    display: flex; align-items: center; gap: 0;
+    border: 1.5px solid var(--border); border-radius: 10px;
+    overflow: hidden; background: var(--cream);
+  }
+  .qty-btn {
+    width: 38px; height: 38px;
+    background: none; border: none;
+    font-size: 20px; font-weight: 300; color: var(--rust);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .15s;
+  }
+  .qty-btn:active { background: var(--border); }
+  .qty-input {
+    width: 52px; height: 38px;
+    border: none; border-left: 1.5px solid var(--border); border-right: 1.5px solid var(--border);
+    background: #fff; text-align: center;
+    font-family: 'Playfair Display', serif;
+    font-size: 18px; font-weight: 700; color: var(--brown);
+    outline: none;
+  }
+  /* hide number input arrows */
+  .qty-input::-webkit-inner-spin-button,
+  .qty-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+  .address-line {
+    font-size: 11px; color: var(--muted);
+    padding: 0 14px 10px;
+    display: none;
+  }
+  .store-card.expanded .address-line { display: block; }
+
+  /* ── CLEAR BTN ── */
+  .clear-btn {
+    margin: 0 14px;
+    background: none; border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px;
+    font-size: 12px; color: var(--muted); cursor: pointer;
+    align-self: flex-start;
+  }
+  .clear-btn:active { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+
+  /* ── BIG ACTION BUTTON ── */
+  .fab {
+    position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    left: 50%; transform: translateX(-50%);
+    z-index: 200;
+    background: var(--rust);
+    color: #fff; font-family: 'DM Sans', sans-serif;
+    font-size: 15px; font-weight: 600;
+    padding: 16px 32px; border-radius: 50px;
+    border: none; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(184,74,30,0.4);
+    display: flex; align-items: center; gap: 8px;
+    transition: transform .15s, box-shadow .15s;
+    white-space: nowrap;
+  }
+  .fab:active { transform: translateX(-50%) scale(0.96); box-shadow: 0 3px 12px rgba(184,74,30,0.3); }
+
+  /* ── ROUTE PAGE ── */
+  .route-header {
+    background: var(--brown); color: #fff;
+    padding: 20px; margin-bottom: 0;
+  }
+  .route-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px; font-weight: 900; margin-bottom: 4px;
+  }
+  .route-subtitle { font-size: 13px; color: rgba(255,255,255,0.6); }
+
+  .route-actions {
+    display: flex; gap: 10px;
+    padding: 14px 16px;
+    background: var(--warm-white);
+    border-bottom: 1px solid var(--border);
+  }
+  .route-btn {
+    flex: 1; padding: 12px 8px; border-radius: 12px;
+    border: none; cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: opacity .15s;
+  }
+  .route-btn:active { opacity: 0.7; }
+  .btn-maps { background: var(--brown); color: #fff; }
+  .btn-whatsapp { background: #25D366; color: #fff; }
+  .btn-copy { background: var(--border); color: var(--brown); }
+
+  .route-list { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+
+  .route-stop {
+    background: var(--warm-white);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .stop-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--rust); color: #fff;
+    font-family: 'Playfair Display', serif;
+    font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .stop-info { flex: 1; min-width: 0; }
+  .stop-name { font-size: 14px; font-weight: 600; color: var(--brown); }
+  .stop-addr { font-size: 11px; color: var(--muted); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop-pills { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .stop-pill {
+    font-size: 11px; font-weight: 600;
+    padding: 3px 8px; border-radius: 20px;
+    background: var(--cream); color: var(--rust);
+    border: 1px solid var(--border);
+  }
+  .stop-total {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px; font-weight: 700; color: var(--rust);
+    flex-shrink: 0;
+  }
+
+  .empty-route {
+    text-align: center; padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-route .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-route p { font-size: 15px; }
+
+  /* ── TOTALS PAGE ── */
+  .totals-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; padding: 16px;
+  }
+  .total-card {
+    background: var(--warm-white);
+    border: 1.5px solid var(--border);
+    border-radius: 16px; padding: 20px 16px;
+    text-align: center;
+  }
+  .total-card.full { grid-column: 1/-1; }
+  .total-card.accent { background: var(--brown); border-color: var(--brown); }
+  .total-card.accent .total-val { color: var(--amber); }
+  .total-card.accent .total-lbl { color: rgba(255,255,255,0.6); }
+  .total-val {
+    font-family: 'Playfair Display', serif;
+    font-size: 42px; font-weight: 900;
+    color: var(--rust); line-height: 1;
+  }
+  .total-lbl {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-top: 6px;
+  }
+
+  .store-breakdown {
+    margin: 0 16px 16px;
+    background: var(--warm-white);
+    border: 1.5px solid var(--border);
+    border-radius: 16px; overflow: hidden;
+  }
+  .breakdown-title {
+    font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--cream);
+  }
+  .breakdown-row {
+    display: flex; align-items: center;
+    padding: 10px 16px; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .breakdown-row:last-child { border-bottom: none; }
+  .breakdown-store { flex: 1; font-size: 13px; font-weight: 500; color: var(--brown); }
+  .breakdown-addr { font-size: 11px; color: var(--muted); }
+  .breakdown-qtys { display: flex; gap: 6px; }
+  .breakdown-qty {
+    font-size: 12px; font-weight: 600;
+    padding: 2px 8px; border-radius: 12px;
+    background: var(--cream); color: var(--rust);
+    border: 1px solid var(--border);
+  }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+    background: var(--brown); color: #fff;
+    padding: 10px 20px; border-radius: 50px;
+    font-size: 13px; font-weight: 500;
+    z-index: 999; opacity: 0; transition: opacity .3s;
+    white-space: nowrap; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ── RESET BANNER ── */
+  .reset-banner {
+    margin: 16px; padding: 14px 16px;
+    background: var(--red-bg); border: 1px solid #f5c6c2;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .reset-text { font-size: 13px; color: var(--red); }
+  .reset-btn {
+    background: var(--red); color: #fff;
+    border: none; border-radius: 8px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600;
+    cursor: pointer; flex-shrink: 0;
+  }
+
+  /* scrollbar hide */
+  ::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body>
+
+<!-- SPLASH SCREEN -->
+<div id="splash" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#3D1F0D;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  transition:opacity 0.6s ease;
+">
+  <div style="font-size:72px;margin-bottom:16px;animation:pulse 1.5s ease-in-out infinite">🥖</div>
+  <div style="font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:#fff;letter-spacing:1px">Bakery Delivery</div>
+  <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-top:8px;font-family:sans-serif">Loading your day...</div>
+  <style>@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}</style>
+</div>
+
+<!-- INSTALL BANNER (shown once on first visit) -->
+<div id="installBanner" style="
+  display:none;position:fixed;bottom:0;left:0;right:0;z-index:500;
+  background:#3D1F0D;color:#fff;
+  padding:16px 20px calc(env(safe-area-inset-bottom,0px) + 16px);
+  font-family:'DM Sans',sans-serif;
+  border-top:3px solid #E07B39;
+">
+  <div style="display:flex;align-items:flex-start;gap:12px">
+    <div style="font-size:28px;flex-shrink:0">📲</div>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:15px;margin-bottom:4px">Add to Home Screen</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.5">
+        Tap <strong>Share</strong> (⬆) in Safari → then <strong>"Add to Home Screen"</strong> → tap <strong>Add</strong>. Opens like a real app every morning.
+      </div>
+    </div>
+    <button onclick="dismissInstall()" style="
+      background:none;border:none;color:rgba(255,255,255,0.5);
+      font-size:22px;cursor:pointer;flex-shrink:0;padding:0;line-height:1
+    ">✕</button>
+  </div>
+</div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-icon">🥖</span>
+      <span class="brand-name">Bakery Delivery</span>
+    </div>
+    <div class="date-badge" id="dateDisplay"></div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="showPage('orders')" id="tab-orders">
+      <span class="tab-icon">📋</span>Orders
+    </div>
+    <div class="tab" onclick="showPage('route')" id="tab-route">
+      <span class="tab-icon">🚚</span>Route
+    </div>
+    <div class="tab" onclick="showPage('totals')" id="tab-totals">
+      <span class="tab-icon">📦</span>Totals
+    </div>
+    <div class="tab" onclick="showPage('stores')" id="tab-stores">
+      <span class="tab-icon">🏪</span>Stores
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 1 — ORDERS
+══════════════════════════════════════════════════════ -->
+<div class="page active" id="page-orders">
+
+  <div class="summary-strip">
+    <div class="summary-card">
+      <div class="summary-val" id="sum-stores">0</div>
+      <div class="summary-lbl">Stores</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-val" id="sum-p1">0</div>
+      <div class="summary-lbl">Sourdough</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-val" id="sum-p2">0</div>
+      <div class="summary-lbl">Croissants</div>
+    </div>
+  </div>
+
+  <div class="section-header">
+    <span class="section-title">Today's Orders</span>
+    <span class="section-hint">Tap store to enter qty</span>
+  </div>
+
+  <div class="store-list" id="storeList"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 2 — ROUTE
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-route">
+  <div class="route-header">
+    <div class="route-title">Delivery Route</div>
+    <div class="route-subtitle" id="route-subtitle">Loading...</div>
+  </div>
+
+  <div class="route-actions">
+    <button class="route-btn btn-maps" onclick="openMaps()">🗺 Maps</button>
+    <button class="route-btn btn-whatsapp" onclick="shareWhatsApp()">💬 WhatsApp</button>
+    <button class="route-btn btn-copy" onclick="copyRoute()">📋 Copy</button>
+  </div>
+
+  <div class="route-list" id="routeList"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 3 — TOTALS
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-totals">
+  <div class="section-header" style="padding-top:20px">
+    <span class="section-title">Production Needed</span>
+  </div>
+
+  <div class="totals-grid">
+    <div class="total-card accent full">
+      <div class="total-val" id="tot-total">0</div>
+      <div class="total-lbl">Total Items to Bake & Pack</div>
+    </div>
+    <div class="total-card">
+      <div class="total-val" id="tot-p1">0</div>
+      <div class="total-lbl">Sourdough Loaves</div>
+    </div>
+    <div class="total-card">
+      <div class="total-val" id="tot-p2">0</div>
+      <div class="total-lbl">Croissant Boxes</div>
+    </div>
+    <div class="total-card">
+      <div class="total-val" id="tot-stores">0</div>
+      <div class="total-lbl">Stores Ordered</div>
+    </div>
+  </div>
+
+  <div class="store-breakdown">
+    <div class="breakdown-title">Store Breakdown</div>
+    <div id="breakdownList"></div>
+  </div>
+
+  <div class="reset-banner">
+    <div class="reset-text">⚠️ Start a fresh day? This clears all quantities.</div>
+    <button class="reset-btn" onclick="resetOrders()">Reset Day</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 4 — STORES
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-stores">
+
+  <div class="section-header" style="padding-top:20px">
+    <span class="section-title">Manage Stores</span>
+    <button onclick="openAddStore()" style="
+      background:var(--rust);color:#fff;border:none;
+      border-radius:20px;padding:7px 16px;
+      font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;
+      cursor:pointer;display:flex;align-items:center;gap:5px
+    ">＋ Add Store</button>
+  </div>
+
+  <div style="padding:0 16px 8px">
+    <div style="font-size:12px;color:var(--muted);background:var(--warm-white);
+      border:1px solid var(--border);border-radius:10px;padding:10px 14px;line-height:1.6">
+      💡 Tap a store to <strong>edit</strong>. The <strong>Seq</strong> number sets delivery order.
+      Changes save instantly and are reflected in Orders &amp; Route.
+    </div>
+  </div>
+
+  <div id="storeManageList" style="padding:0 16px;display:flex;flex-direction:column;gap:8px"></div>
+</div>
+
+<!-- ── ADD / EDIT STORE MODAL ── -->
+<div id="storeModal" style="
+  display:none;position:fixed;inset:0;z-index:800;
+  background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);
+  align-items:flex-end;justify-content:center;
+">
+  <div style="
+    background:var(--warm-white);width:100%;max-width:480px;
+    border-radius:24px 24px 0 0;
+    padding:24px 20px calc(env(safe-area-inset-bottom,0px) + 24px);
+    font-family:'DM Sans',sans-serif;
+  ">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--brown)"
+           id="modalTitle">Add Store</div>
+      <button onclick="closeStoreModal()" style="
+        background:var(--border);border:none;border-radius:50%;
+        width:32px;height:32px;font-size:18px;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;color:var(--brown)
+      ">✕</button>
+    </div>
+
+    <input type="hidden" id="editStoreId">
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Store Name *</label>
+        <input id="fName" type="text" placeholder="e.g. Anda Chowk" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Area / Suburb</label>
+        <input id="fArea" type="text" placeholder="e.g. Blacktown" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Full Address</label>
+        <input id="fAddress" type="text" placeholder="e.g. 21 Second Ave, Blacktown NSW 2148" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Delivery Sequence #</label>
+        <input id="fSeq" type="number" inputmode="numeric" placeholder="e.g. 5" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button id="deleteStoreBtn" onclick="deleteStore()" style="
+        flex:0;padding:14px 18px;border-radius:12px;
+        background:var(--red-bg);color:var(--red);
+        border:1.5px solid #f5c6c2;
+        font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;
+        display:none;
+      ">🗑 Delete</button>
+      <button onclick="saveStore()" style="
+        flex:1;padding:14px;border-radius:12px;
+        background:var(--rust);color:#fff;border:none;
+        font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;
+      ">Save Store</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STORE DATA (from your Store List) ────────────────────────────────────────
+const DEFAULT_STORES = [
+  {id:1,  name:"Store 01", area:"Baker Street",     address:"123 Baker St",         seq:1},
+  {id:2,  name:"Store 02", area:"Maple Avenue",     address:"45 Maple Ave",         seq:2},
+  {id:3,  name:"Store 03", area:"Oak Lane",         address:"78 Oak Lane",          seq:3},
+  {id:4,  name:"Store 04", area:"Sunrise Mall",     address:"12 Sunrise Blvd",      seq:4},
+  {id:5,  name:"Store 05", area:"Central Market",   address:"99 Central Rd",        seq:5},
+  {id:6,  name:"Store 06", area:"Hillside Shop",    address:"56 Hillside Dr",       seq:6},
+  {id:7,  name:"Store 07", area:"Valley Corner",    address:"200 Valley Rd",        seq:7},
+  {id:8,  name:"Store 08", area:"Riverside Store",  address:"33 River St",          seq:8},
+  {id:9,  name:"Store 09", area:"Northgate",        address:"10 North Ave",         seq:9},
+  {id:10, name:"Store 10", area:"Eastwood Market",  address:"88 Eastwood Blvd",     seq:10},
+  {id:11, name:"Store 11", area:"Westside Bakery",  address:"5 West End Rd",        seq:11},
+  {id:12, name:"Store 12", area:"Southpark Stop",   address:"14 South Park Ave",    seq:12},
+  {id:13, name:"Store 13", area:"Lakewood Center",  address:"300 Lake Rd",          seq:13},
+  {id:14, name:"Store 14", area:"Pine Market",      address:"19 Pine St",           seq:14},
+  {id:15, name:"Store 15", area:"Cedar Point",      address:"72 Cedar Ave",         seq:15},
+  {id:16, name:"Store 16", area:"Greenfield Corner",address:"88 Green Field Rd",    seq:16},
+  {id:17, name:"Store 17", area:"Harbour View",     address:"4 Harbour Lane",       seq:17},
+  {id:18, name:"Store 18", area:"Metro Stop",       address:"150 Metro Blvd",       seq:18},
+  {id:19, name:"Store 19", area:"Twin Peaks Market",address:"66 Twin Peaks Rd",     seq:19},
+  {id:20, name:"Store 20", area:"Sunset Junction",  address:"90 Sunset Ave",        seq:20},
+];
+
+const PRODUCTS = ["Sourdough Loaf", "Croissant (Box of 6)"];
+const STORAGE_KEY  = 'bakery_orders_v1';
+const DATE_KEY     = 'bakery_date_v1';
+const STORES_KEY   = 'bakery_stores_v1';
+
+// ── SAFE STORAGE (works for file://, Safari, Chrome, anywhere) ───────────────
+const _mem = {};  // in-memory fallback
+const store = {
+  get(k) {
+    try { return localStorage.getItem(k); } catch(e) { return _mem[k] ?? null; }
+  },
+  set(k, v) {
+    try { localStorage.setItem(k, v); } catch(e) { _mem[k] = v; }
+  },
+  del(k) {
+    try { localStorage.removeItem(k); } catch(e) { delete _mem[k]; }
+  }
+};
+
+let STORES = [];
+
+function loadStores() {
+  try {
+    const saved = store.get(STORES_KEY);
+    STORES = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_STORES));
+  } catch(e) {
+    STORES = JSON.parse(JSON.stringify(DEFAULT_STORES));
+  }
+}
+
+function saveStores() {
+  store.set(STORES_KEY, JSON.stringify(STORES));
+}
+
+function nextStoreId() {
+  return STORES.length ? Math.max(...STORES.map(s => s.id)) + 1 : 1;
+}
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let orders = {};  // { storeId: { p1: 0, p2: 0 } }
+
+function todayStr() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function loadOrders() {
+  try {
+    const saved = store.get(STORAGE_KEY);
+    const savedDate = store.get(DATE_KEY);
+    if (saved && savedDate === todayStr()) {
+      orders = JSON.parse(saved);
+    } else {
+      orders = {};
+      store.set(DATE_KEY, todayStr());
+    }
+  } catch(e) { orders = {}; }
+}
+
+function saveOrders() {
+  try {
+    store.set(STORAGE_KEY, JSON.stringify(orders));
+    store.set(DATE_KEY, todayStr());
+  } catch(e) {}
+}
+
+function getOrder(id) {
+  return orders[id] || {p1:0, p2:0};
+}
+
+function setOrder(id, p1, p2) {
+  orders[id] = {p1: Math.max(0, p1||0), p2: Math.max(0, p2||0)};
+  saveOrders();
+  updateSummary();
+  updateCardState(id);
+}
+
+// ── DATE DISPLAY ─────────────────────────────────────────────────────────────
+function initDate() {
+  const d = new Date();
+  const opts = {weekday:'short', day:'numeric', month:'short'};
+  document.getElementById('dateDisplay').textContent =
+    d.toLocaleDateString('en-AU', opts);
+}
+
+// ── BUILD ORDERS PAGE ────────────────────────────────────────────────────────
+function buildOrdersPage() {
+  const list = document.getElementById('storeList');
+  list.innerHTML = '';
+  STORES.forEach(store => {
+    const o = getOrder(store.id);
+    const card = document.createElement('div');
+    card.className = 'store-card' + (o.p1+o.p2 > 0 ? ' has-order' : '');
+    card.id = `card-${store.id}`;
+    card.innerHTML = `
+      <div class="store-card-header" onclick="toggleCard(${store.id})">
+        <div class="store-seq">${store.seq}</div>
+        <div class="store-info">
+          <div class="store-name">${store.name}</div>
+          <div class="store-area">${store.area}</div>
+        </div>
+        <div class="store-total-badge" id="badge-${store.id}">${o.p1+o.p2}</div>
+      </div>
+      <div class="store-inputs">
+        <div class="input-row">
+          <div class="input-label">
+            Sourdough Loaf
+          </div>
+          <div class="qty-control">
+            <button class="qty-btn" onclick="changeQty(${store.id},'p1',-1)">−</button>
+            <input class="qty-input" type="number" inputmode="numeric" id="p1-${store.id}"
+              value="${o.p1}" min="0"
+              onchange="inputChanged(${store.id},'p1',this.value)"
+              onfocus="this.select()">
+            <button class="qty-btn" onclick="changeQty(${store.id},'p1',1)">+</button>
+          </div>
+        </div>
+        <div class="input-row">
+          <div class="input-label">
+            Croissant Box
+          </div>
+          <div class="qty-control">
+            <button class="qty-btn" onclick="changeQty(${store.id},'p2',-1)">−</button>
+            <input class="qty-input" type="number" inputmode="numeric" id="p2-${store.id}"
+              value="${o.p2}" min="0"
+              onchange="inputChanged(${store.id},'p2',this.value)"
+              onfocus="this.select()">
+            <button class="qty-btn" onclick="changeQty(${store.id},'p2',1)">+</button>
+          </div>
+        </div>
+        <div class="address-line">📍 ${store.address}</div>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+let expandedCard = null;
+function toggleCard(id) {
+  if (expandedCard && expandedCard !== id) {
+    document.getElementById(`card-${expandedCard}`).classList.remove('expanded');
+  }
+  const card = document.getElementById(`card-${id}`);
+  card.classList.toggle('expanded');
+  expandedCard = card.classList.contains('expanded') ? id : null;
+  if (expandedCard) {
+    setTimeout(() => card.scrollIntoView({behavior:'smooth', block:'nearest'}), 150);
+  }
+}
+
+function changeQty(storeId, product, delta) {
+  const input = document.getElementById(`${product}-${storeId}`);
+  const o = getOrder(storeId);
+  const newVal = Math.max(0, (o[product]||0) + delta);
+  input.value = newVal;
+  o[product] = newVal;
+  setOrder(storeId, product==='p1'?newVal:o.p1, product==='p2'?newVal:o.p2);
+}
+
+function inputChanged(storeId, product, val) {
+  const o = getOrder(storeId);
+  o[product] = parseInt(val)||0;
+  setOrder(storeId, o.p1, o.p2);
+}
+
+function updateCardState(id) {
+  const o = getOrder(id);
+  const card = document.getElementById(`card-${id}`);
+  const badge = document.getElementById(`badge-${id}`);
+  const total = o.p1 + o.p2;
+  badge.textContent = total;
+  if (total > 0) {
+    card.classList.add('has-order');
+  } else {
+    card.classList.remove('has-order');
+  }
+  updateRoutePage();
+  updateTotalsPage();
+}
+
+function updateSummary() {
+  let stores=0, p1=0, p2=0;
+  STORES.forEach(s => {
+    const o = getOrder(s.id);
+    if (o.p1+o.p2 > 0) stores++;
+    p1 += o.p1; p2 += o.p2;
+  });
+  document.getElementById('sum-stores').textContent = stores;
+  document.getElementById('sum-p1').textContent = p1;
+  document.getElementById('sum-p2').textContent = p2;
+}
+
+// ── ROUTE PAGE ───────────────────────────────────────────────────────────────
+function orderedStores() {
+  return STORES
+    .filter(s => { const o=getOrder(s.id); return o.p1+o.p2 > 0; })
+    .sort((a,b) => a.seq - b.seq);
+}
+
+function updateRoutePage() {
+  const stops = orderedStores();
+  const sub = document.getElementById('route-subtitle');
+  const list = document.getElementById('routeList');
+
+  sub.textContent = stops.length > 0
+    ? `${stops.length} stop${stops.length>1?'s':''} today`
+    : 'No orders entered yet';
+
+  if (stops.length === 0) {
+    list.innerHTML = `<div class="empty-route">
+      <div class="empty-icon">🗺️</div>
+      <p>Enter orders first,<br>then your route appears here.</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  stops.forEach((store, i) => {
+    const o = getOrder(store.id);
+    const pills = [];
+    if (o.p1 > 0) pills.push(`<span class="stop-pill">🍞 ${o.p1} Sourdough</span>`);
+    if (o.p2 > 0) pills.push(`<span class="stop-pill">🥐 ${o.p2} Croissant</span>`);
+    list.innerHTML += `
+      <div class="route-stop">
+        <div class="stop-num">${i+1}</div>
+        <div class="stop-info">
+          <div class="stop-name">${store.name}</div>
+          <div class="stop-addr">${store.address}</div>
+          <div class="stop-pills">${pills.join('')}</div>
+        </div>
+        <div class="stop-total">${o.p1+o.p2}</div>
+      </div>`;
+  });
+}
+
+function openMaps() {
+  const stops = orderedStores();
+  if (!stops.length) { showToast('No orders yet!'); return; }
+  // Apple Maps waypoints URL
+  const daddr = stops.map(s => encodeURIComponent(s.address)).join('/');
+  window.open(`http://maps.apple.com/?daddr=${daddr}`, '_blank');
+}
+
+function shareWhatsApp() {
+  const stops = orderedStores();
+  if (!stops.length) { showToast('No orders yet!'); return; }
+  const d = new Date().toLocaleDateString('en-AU', {weekday:'long', day:'numeric', month:'long'});
+  let msg = `🥖 *BAKERY DELIVERY — ${d}*\n\n`;
+  stops.forEach((s, i) => {
+    const o = getOrder(s.id);
+    msg += `*Stop ${i+1}: ${s.name}*\n`;
+    msg += `📍 ${s.address}\n`;
+    if (o.p1) msg += `  🍞 Sourdough: ${o.p1}\n`;
+    if (o.p2) msg += `  🥐 Croissant: ${o.p2}\n`;
+    msg += '\n';
+  });
+  const totP1 = stops.reduce((a,s)=>a+getOrder(s.id).p1, 0);
+  const totP2 = stops.reduce((a,s)=>a+getOrder(s.id).p2, 0);
+  msg += `📦 *TOTAL: ${totP1+totP2} items (${totP1} Sourdough, ${totP2} Croissant)*`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+function copyRoute() {
+  const stops = orderedStores();
+  if (!stops.length) { showToast('No orders yet!'); return; }
+  const d = new Date().toLocaleDateString('en-AU');
+  let txt = `DELIVERY ROUTE — ${d}\n${'─'.repeat(30)}\n\n`;
+  stops.forEach((s,i) => {
+    const o = getOrder(s.id);
+    txt += `Stop ${i+1}: ${s.name}\n${s.address}\n`;
+    if (o.p1) txt += `  Sourdough: ${o.p1}\n`;
+    if (o.p2) txt += `  Croissant: ${o.p2}\n`;
+    txt += '\n';
+  });
+  navigator.clipboard?.writeText(txt).then(() => showToast('Route copied!'))
+    .catch(() => showToast('Copy not supported — use WhatsApp'));
+}
+
+// ── TOTALS PAGE ──────────────────────────────────────────────────────────────
+function updateTotalsPage() {
+  const stops = orderedStores();
+  let p1=0, p2=0;
+  stops.forEach(s => { const o=getOrder(s.id); p1+=o.p1; p2+=o.p2; });
+  document.getElementById('tot-p1').textContent = p1;
+  document.getElementById('tot-p2').textContent = p2;
+  document.getElementById('tot-total').textContent = p1+p2;
+  document.getElementById('tot-stores').textContent = stops.length;
+
+  const bl = document.getElementById('breakdownList');
+  if (!stops.length) {
+    bl.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:14px">No orders yet today</div>`;
+    return;
+  }
+  bl.innerHTML = stops.map(s => {
+    const o = getOrder(s.id);
+    const pills = [];
+    if (o.p1) pills.push(`<span class="breakdown-qty">🍞 ${o.p1}</span>`);
+    if (o.p2) pills.push(`<span class="breakdown-qty">🥐 ${o.p2}</span>`);
+    return `<div class="breakdown-row">
+      <div class="breakdown-store">
+        ${s.name}
+        <div class="breakdown-addr">${s.area}</div>
+      </div>
+      <div class="breakdown-qtys">${pills.join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── NAVIGATION ───────────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if (name === 'route')  updateRoutePage();
+  if (name === 'totals') updateTotalsPage();
+  if (name === 'stores') buildStoresPage();
+}
+
+// ── RESET ────────────────────────────────────────────────────────────────────
+function resetOrders() {
+  if (!confirm('Clear all quantities for today?')) return;
+  orders = {};
+  saveOrders();
+  buildOrdersPage();
+  updateSummary();
+  updateRoutePage();
+  updateTotalsPage();
+  showToast('Orders reset ✓');
+}
+
+// ── TOAST ────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── STORES PAGE ──────────────────────────────────────────────────────────────
+function buildStoresPage() {
+  const list = document.getElementById('storeManageList');
+  const sorted = [...STORES].sort((a,b) => a.seq - b.seq);
+  list.innerHTML = '';
+  sorted.forEach(store => {
+    const div = document.createElement('div');
+    div.style.cssText = `
+      background:var(--warm-white);border:1.5px solid var(--border);
+      border-radius:14px;padding:14px 16px;
+      display:flex;align-items:center;gap:12px;cursor:pointer;
+    `;
+    div.onclick = () => openEditStore(store.id);
+    div.innerHTML = `
+      <div style="
+        width:34px;height:34px;border-radius:50%;
+        background:var(--rust);color:#fff;
+        font-family:'Playfair Display',serif;font-size:14px;font-weight:700;
+        display:flex;align-items:center;justify-content:center;flex-shrink:0;
+      ">${store.seq}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:15px;font-weight:600;color:var(--brown)">${store.name}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${store.address || store.area}</div>
+      </div>
+      <div style="font-size:20px;color:var(--muted)">›</div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function openAddStore() {
+  document.getElementById('modalTitle').textContent = 'Add Store';
+  document.getElementById('editStoreId').value = '';
+  document.getElementById('fName').value = '';
+  document.getElementById('fArea').value = '';
+  document.getElementById('fAddress').value = '';
+  document.getElementById('fSeq').value = STORES.length + 1;
+  document.getElementById('deleteStoreBtn').style.display = 'none';
+  const modal = document.getElementById('storeModal');
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('fName').focus(), 300);
+}
+
+function openEditStore(id) {
+  const store = STORES.find(s => s.id === id);
+  if (!store) return;
+  document.getElementById('modalTitle').textContent = 'Edit Store';
+  document.getElementById('editStoreId').value = id;
+  document.getElementById('fName').value = store.name;
+  document.getElementById('fArea').value = store.area || '';
+  document.getElementById('fAddress').value = store.address || '';
+  document.getElementById('fSeq').value = store.seq;
+  document.getElementById('deleteStoreBtn').style.display = 'block';
+  document.getElementById('storeModal').style.display = 'flex';
+}
+
+function closeStoreModal() {
+  document.getElementById('storeModal').style.display = 'none';
+}
+
+function saveStore() {
+  const name = document.getElementById('fName').value.trim();
+  if (!name) { showToast('Store name is required'); return; }
+  const area    = document.getElementById('fArea').value.trim();
+  const address = document.getElementById('fAddress').value.trim();
+  const seq     = parseInt(document.getElementById('fSeq').value) || STORES.length + 1;
+  const editId  = document.getElementById('editStoreId').value;
+
+  if (editId) {
+    const store = STORES.find(s => s.id === parseInt(editId));
+    if (store) { store.name = name; store.area = area; store.address = address; store.seq = seq; }
+    showToast('Store updated ✓');
+  } else {
+    STORES.push({ id: nextStoreId(), name, area, address, seq });
+    showToast('Store added ✓');
+  }
+  saveStores();
+  closeStoreModal();
+  buildStoresPage();
+  buildOrdersPage();
+  updateSummary();
+}
+
+function deleteStore() {
+  const editId = parseInt(document.getElementById('editStoreId').value);
+  if (!editId) return;
+  const store = STORES.find(s => s.id === editId);
+  if (!confirm(`Delete "${store ? store.name : 'this store'}"? This cannot be undone.`)) return;
+  STORES = STORES.filter(s => s.id !== editId);
+  delete orders[editId];
+  saveStores();
+  saveOrders();
+  closeStoreModal();
+  buildStoresPage();
+  buildOrdersPage();
+  updateSummary();
+  showToast('Store deleted');
+}
+
+// Close modal on backdrop tap
+document.getElementById('storeModal').addEventListener('click', function(e) {
+  if (e.target === this) closeStoreModal();
+});
+
+// ── NAVIGATION (updated) ─────────────────────────────────────────────────────
+// ── INIT ─────────────────────────────────────────────────────────────────────
+loadStores();
+loadOrders();
+initDate();
+buildOrdersPage();
+buildStoresPage();
+updateSummary();
+
+// ── SPLASH ───────────────────────────────────────────────────────────────────
+function hideSplash() {
+  const s = document.getElementById('splash');
+  if (!s) return;
+  s.style.opacity = '0';
+  setTimeout(() => s.style.display = 'none', 600);
+}
+// Fire on both events — whichever comes first/last
+setTimeout(hideSplash, 800);
+window.addEventListener('load', () => setTimeout(hideSplash, 300));
+
+// ── INSTALL BANNER ────────────────────────────────────────────────────────────
+function isStandalone() {
+  return window.navigator.standalone === true ||
+         window.matchMedia('(display-mode: standalone)').matches;
+}
+function dismissInstall() {
+  document.getElementById('installBanner').style.display = 'none';
+  store.set('install_dismissed', '1');
+}
+setTimeout(() => {
+  if (!isStandalone() && !store.get('install_dismissed')) {
+    document.getElementById('installBanner').style.display = 'block';
+  }
+}, 3000);
+
+</script>
+</body>
+</html>
