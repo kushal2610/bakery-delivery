@@ -85,7 +85,7 @@
 
   /* ── SUMMARY STRIP ── */
   .summary-strip {
-    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
     gap: 0; background: var(--warm-white);
     border-bottom: 1px solid var(--border);
   }
@@ -477,6 +477,10 @@
       <div class="summary-val" id="sum-p2">0</div>
       <div class="summary-lbl">9 Pack</div>
     </div>
+    <div class="summary-card">
+      <div class="summary-val" id="sum-p3">0</div>
+      <div class="summary-lbl">Usal Pav</div>
+    </div>
   </div>
 
   <div class="section-header">
@@ -525,6 +529,10 @@
     <div class="total-card">
       <div class="total-val" id="tot-p2">0</div>
       <div class="total-lbl">9 Pack</div>
+    </div>
+    <div class="total-card">
+      <div class="total-val" id="tot-p3">0</div>
+      <div class="total-lbl">Usal Pav</div>
     </div>
     <div class="total-card">
       <div class="total-val" id="tot-stores">0</div>
@@ -672,8 +680,9 @@ const DEFAULT_STORES = [
   {id:22, name:'Icy Spicy', area:'Parramatta', address:'146 James Ruse Dr, Parramatta NSW 2150', seq:22},
 ];
 
-const PRODUCTS = ["6 Pack", "9 Pack"];
-const STORAGE_KEY  = 'bakery_orders_v1';
+const PRODUCTS = ["6 Pack", "9 Pack", "Usal Pav"];
+const STORAGE_KEY_V2  = 'bakery_orders_v2';
+const STORAGE_KEY_V1  = 'bakery_orders_v1';
 const DATE_KEY     = 'bakery_date_v1';
 const STORES_KEY   = 'bakery_stores_v1';
 
@@ -711,7 +720,7 @@ function nextStoreId() {
 }
 
 // ── STATE ────────────────────────────────────────────────────────────────────
-let orders = {};  // { storeId: { p1: 0, p2: 0 } }
+let orders = {};  // { storeId: { p1: 0, p2: 0, p3: 0 } }
 
 function todayStr() {
   return new Date().toISOString().slice(0,10);
@@ -719,30 +728,49 @@ function todayStr() {
 
 function loadOrders() {
   try {
-    const saved = store.get(STORAGE_KEY);
+    const saved = store.get(STORAGE_KEY_V2);
     const savedDate = store.get(DATE_KEY);
     if (saved && savedDate === todayStr()) {
       orders = JSON.parse(saved);
     } else {
-      orders = {};
-      store.set(DATE_KEY, todayStr());
+      const savedV1 = store.get(STORAGE_KEY_V1);
+      if (savedV1 && savedDate === todayStr()) {
+        orders = JSON.parse(savedV1);
+        try {
+          store.set(STORAGE_KEY_V2, JSON.stringify(orders));
+          store.del(STORAGE_KEY_V1);
+        } catch(e) {}
+      } else {
+        orders = {};
+        store.set(DATE_KEY, todayStr());
+      }
     }
   } catch(e) { orders = {}; }
 }
 
 function saveOrders() {
   try {
-    store.set(STORAGE_KEY, JSON.stringify(orders));
+    store.set(STORAGE_KEY_V2, JSON.stringify(orders));
     store.set(DATE_KEY, todayStr());
+    store.del(STORAGE_KEY_V1);
   } catch(e) {}
 }
 
 function getOrder(id) {
-  return orders[id] || {p1:0, p2:0};
+  const o = orders[id] || {};
+  return {
+    p1: Math.max(0, parseInt(o.p1) || 0),
+    p2: Math.max(0, parseInt(o.p2) || 0),
+    p3: Math.max(0, parseInt(o.p3) || 0),
+  };
 }
 
-function setOrder(id, p1, p2) {
-  orders[id] = {p1: Math.max(0, p1||0), p2: Math.max(0, p2||0)};
+function setOrder(id, p1, p2, p3) {
+  orders[id] = {
+    p1: Math.max(0, p1||0),
+    p2: Math.max(0, p2||0),
+    p3: Math.max(0, p3||0),
+  };
   saveOrders();
   updateSummary();
   updateCardState(id);
@@ -763,7 +791,7 @@ function buildOrdersPage() {
   STORES.forEach(store => {
     const o = getOrder(store.id);
     const card = document.createElement('div');
-    card.className = 'store-card' + (o.p1+o.p2 > 0 ? ' has-order' : '');
+    card.className = 'store-card' + (o.p1+o.p2+o.p3 > 0 ? ' has-order' : '');
     card.id = `card-${store.id}`;
     card.innerHTML = `
       <div class="store-card-header" onclick="toggleCard(${store.id})">
@@ -772,7 +800,7 @@ function buildOrdersPage() {
           <div class="store-name">${store.name}</div>
           <div class="store-area">${store.area}</div>
         </div>
-        <div class="store-total-badge" id="badge-${store.id}">${o.p1+o.p2}</div>
+        <div class="store-total-badge" id="badge-${store.id}">${o.p1+o.p2+o.p3}</div>
       </div>
       <div class="store-inputs">
         <div class="input-row">
@@ -801,6 +829,19 @@ function buildOrdersPage() {
             <button class="qty-btn" onclick="changeQty(${store.id},'p2',1)">+</button>
           </div>
         </div>
+        <div class="input-row">
+          <div class="input-label">
+            Usal Pav
+          </div>
+          <div class="qty-control">
+            <button class="qty-btn" onclick="changeQty(${store.id},'p3',-1)">−</button>
+            <input class="qty-input" type="number" inputmode="numeric" id="p3-${store.id}"
+              value="${o.p3}" min="0"
+              onchange="inputChanged(${store.id},'p3',this.value)"
+              onfocus="this.select()">
+            <button class="qty-btn" onclick="changeQty(${store.id},'p3',1)">+</button>
+          </div>
+        </div>
         <div class="address-line">📍 ${store.address}</div>
       </div>
     `;
@@ -827,20 +868,25 @@ function changeQty(storeId, product, delta) {
   const newVal = Math.max(0, (o[product]||0) + delta);
   input.value = newVal;
   o[product] = newVal;
-  setOrder(storeId, product==='p1'?newVal:o.p1, product==='p2'?newVal:o.p2);
+  setOrder(
+    storeId,
+    product==='p1'?newVal:o.p1,
+    product==='p2'?newVal:o.p2,
+    product==='p3'?newVal:o.p3
+  );
 }
 
 function inputChanged(storeId, product, val) {
   const o = getOrder(storeId);
   o[product] = parseInt(val)||0;
-  setOrder(storeId, o.p1, o.p2);
+  setOrder(storeId, o.p1, o.p2, o.p3);
 }
 
 function updateCardState(id) {
   const o = getOrder(id);
   const card = document.getElementById(`card-${id}`);
   const badge = document.getElementById(`badge-${id}`);
-  const total = o.p1 + o.p2;
+  const total = o.p1 + o.p2 + o.p3;
   badge.textContent = total;
   if (total > 0) {
     card.classList.add('has-order');
@@ -852,21 +898,22 @@ function updateCardState(id) {
 }
 
 function updateSummary() {
-  let stores=0, p1=0, p2=0;
+  let stores=0, p1=0, p2=0, p3=0;
   STORES.forEach(s => {
     const o = getOrder(s.id);
-    if (o.p1+o.p2 > 0) stores++;
-    p1 += o.p1; p2 += o.p2;
+    if (o.p1+o.p2+o.p3 > 0) stores++;
+    p1 += o.p1; p2 += o.p2; p3 += o.p3;
   });
   document.getElementById('sum-stores').textContent = stores;
   document.getElementById('sum-p1').textContent = p1;
   document.getElementById('sum-p2').textContent = p2;
+  document.getElementById('sum-p3').textContent = p3;
 }
 
 // ── ROUTE PAGE ───────────────────────────────────────────────────────────────
 function orderedStores() {
   return STORES
-    .filter(s => { const o=getOrder(s.id); return o.p1+o.p2 > 0; })
+    .filter(s => { const o=getOrder(s.id); return o.p1+o.p2+o.p3 > 0; })
     .sort((a,b) => a.seq - b.seq);
 }
 
@@ -893,6 +940,7 @@ function updateRoutePage() {
     const pills = [];
     if (o.p1 > 0) pills.push(`<span class="stop-pill">📦 ${o.p1} × 6 Pack</span>`);
     if (o.p2 > 0) pills.push(`<span class="stop-pill">📦 ${o.p2} × 9 Pack</span>`);
+    if (o.p3 > 0) pills.push(`<span class="stop-pill">📦 ${o.p3} × Usal Pav</span>`);
     list.innerHTML += `
       <div class="route-stop">
         <div class="stop-num">${i+1}</div>
@@ -901,7 +949,7 @@ function updateRoutePage() {
           <div class="stop-addr">${store.address}</div>
           <div class="stop-pills">${pills.join('')}</div>
         </div>
-        <div class="stop-total">${o.p1+o.p2}</div>
+        <div class="stop-total">${o.p1+o.p2+o.p3}</div>
       </div>`;
   });
 }
@@ -925,25 +973,25 @@ function copyCleanTable() {
   });
 
   const nameW = Math.max(8, ...stops.map(s => s.name.length));
-  const c1 = 6, c2 = 6, c3 = 5;
+  const c1 = 6, c2 = 6, c3 = 8, c4 = 5;
   const pL = (s, n) => String(s).padEnd(n);
   const pR = (s, n) => String(s).padStart(n);
-  const sep = `${'-'.repeat(nameW)}  ${'-'.repeat(c1)}  ${'-'.repeat(c2)}  ${'-'.repeat(c3)}`;
+  const sep = `${'-'.repeat(nameW)}  ${'-'.repeat(c1)}  ${'-'.repeat(c2)}  ${'-'.repeat(c3)}  ${'-'.repeat(c4)}`;
 
-  let totP1 = 0, totP2 = 0;
+  let totP1 = 0, totP2 = 0, totP3 = 0;
   const dataRows = stops.map(s => {
     const o = getOrder(s.id);
-    totP1 += o.p1; totP2 += o.p2;
-    return `${pL(s.name, nameW)}  ${pR(o.p1||'-', c1)}  ${pR(o.p2||'-', c2)}  ${pR(o.p1+o.p2, c3)}`;
+    totP1 += o.p1; totP2 += o.p2; totP3 += o.p3;
+    return `${pL(s.name, nameW)}  ${pR(o.p1||'-', c1)}  ${pR(o.p2||'-', c2)}  ${pR(o.p3||'-', c3)}  ${pR(o.p1+o.p2+o.p3, c4)}`;
   });
 
   const table = [
     dateStr,
-    `${pL('Store', nameW)}  ${pR('6 Pack', c1)}  ${pR('9 Pack', c2)}  ${pR('Total', c3)}`,
+    `${pL('Store', nameW)}  ${pR('6 Pack', c1)}  ${pR('9 Pack', c2)}  ${pR('Usal Pav', c3)}  ${pR('Total', c4)}`,
     sep,
     ...dataRows,
     sep,
-    `${pL('TOTAL', nameW)}  ${pR(totP1, c1)}  ${pR(totP2, c2)}  ${pR(totP1+totP2, c3)}`,
+    `${pL('TOTAL', nameW)}  ${pR(totP1, c1)}  ${pR(totP2, c2)}  ${pR(totP3, c3)}  ${pR(totP1+totP2+totP3, c4)}`,
   ].join('\n');
 
   // Wrap in ``` so WhatsApp renders monospace (perfectly aligned)
@@ -980,8 +1028,8 @@ function savePDF() {
   const usableW = pageW - margin * 2;
 
   // Column widths (mm)
-  const c0 = usableW - 18 - 18 - 18;  // store name — takes remaining
-  const c1 = 18, c2 = 18, c3 = 18;
+  const c0 = usableW - 14 - 14 - 14 - 14;  // store name — takes remaining
+  const c1 = 14, c2 = 14, c3 = 14, c4 = 14;
   const rowH = 9;
   const headH = 11;
 
@@ -1010,18 +1058,19 @@ function savePDF() {
   doc.rect(margin, y, usableW, headH, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.text('Store',  margin + 3, y + 7.5);
   doc.text('6 Pack', margin + c0 + c1/2, y + 7.5, {align:'center'});
   doc.text('9 Pack', margin + c0 + c1 + c2/2, y + 7.5, {align:'center'});
-  doc.text('Total',  margin + c0 + c1 + c2 + c3/2, y + 7.5, {align:'center'});
+  doc.text('Usal Pav', margin + c0 + c1 + c2 + c3/2, y + 7.5, {align:'center'});
+  doc.text('Total',  margin + c0 + c1 + c2 + c3 + c4/2, y + 7.5, {align:'center'});
   y += headH;
 
   // Data rows
-  let totP1 = 0, totP2 = 0;
+  let totP1 = 0, totP2 = 0, totP3 = 0;
   stops.forEach((s, i) => {
     const o = getOrder(s.id);
-    totP1 += o.p1; totP2 += o.p2;
+    totP1 += o.p1; totP2 += o.p2; totP3 += o.p3;
 
     // Row bg
     doc.setFillColor(i % 2 === 0 ? 255 : 248, i % 2 === 0 ? 255 : 248, i % 2 === 0 ? 255 : 248);
@@ -1041,8 +1090,9 @@ function savePDF() {
     doc.text(name, margin + 3, y + 6.2);
     doc.text(String(o.p1 || '-'), margin + c0 + c1/2, y + 6.2, {align:'center'});
     doc.text(String(o.p2 || '-'), margin + c0 + c1 + c2/2, y + 6.2, {align:'center'});
+    doc.text(String(o.p3 || '-'), margin + c0 + c1 + c2 + c3/2, y + 6.2, {align:'center'});
     doc.setFont('helvetica', 'bold');
-    doc.text(String(o.p1 + o.p2), margin + c0 + c1 + c2 + c3/2, y + 6.2, {align:'center'});
+    doc.text(String(o.p1 + o.p2 + o.p3), margin + c0 + c1 + c2 + c3 + c4/2, y + 6.2, {align:'center'});
     y += rowH;
   });
 
@@ -1055,7 +1105,8 @@ function savePDF() {
   doc.text('TOTAL', margin + 3, y + 7.5);
   doc.text(String(totP1), margin + c0 + c1/2, y + 7.5, {align:'center'});
   doc.text(String(totP2), margin + c0 + c1 + c2/2, y + 7.5, {align:'center'});
-  doc.text(String(totP1 + totP2), margin + c0 + c1 + c2 + c3/2, y + 7.5, {align:'center'});
+  doc.text(String(totP3), margin + c0 + c1 + c2 + c3/2, y + 7.5, {align:'center'});
+  doc.text(String(totP1 + totP2 + totP3), margin + c0 + c1 + c2 + c3 + c4/2, y + 7.5, {align:'center'});
 
   // Outer border
   doc.setDrawColor(17, 17, 17);
@@ -1065,7 +1116,7 @@ function savePDF() {
   // Vertical dividers
   doc.setLineWidth(0.2);
   doc.setDrawColor(200, 200, 200);
-  const dividers = [margin + c0, margin + c0 + c1, margin + c0 + c1 + c2];
+  const dividers = [margin + c0, margin + c0 + c1, margin + c0 + c1 + c2, margin + c0 + c1 + c2 + c3];
   dividers.forEach(x => {
     doc.line(x, margin, x, y + headH);
   });
@@ -1089,29 +1140,30 @@ function copyTable() {
   const nameW  = Math.max(12, ...stops.map(s => s.name.length));
   const col1 = 7;   // 6 Pack
   const col2 = 7;   // 9 Pack
-  const col3 = 6;   // Total
+  const col3 = 9;   // Usal Pav
+  const col4 = 6;   // Total
 
   const padE = (s, n) => String(s).padEnd(n);
   const padS = (s, n) => String(s).padStart(n);
 
-  const sep = `+${'-'.repeat(nameW+2)}+${'-'.repeat(col1+2)}+${'-'.repeat(col2+2)}+${'-'.repeat(col3+2)}+`;
+  const sep = `+${'-'.repeat(nameW+2)}+${'-'.repeat(col1+2)}+${'-'.repeat(col2+2)}+${'-'.repeat(col3+2)}+${'-'.repeat(col4+2)}+`;
 
   let txt = `📅 ${dateStr}\n`;
   txt += sep + '\n';
-  txt += `| ${padE('Store', nameW)} | ${padE('6 Pack', col1)} | ${padE('9 Pack', col2)} | ${padE('Total', col3)} |\n`;
+  txt += `| ${padE('Store', nameW)} | ${padE('6 Pack', col1)} | ${padE('9 Pack', col2)} | ${padE('Usal Pav', col3)} | ${padE('Total', col4)} |\n`;
   txt += sep.replace(/-/g, '=') + '\n';
 
-  let totP1 = 0, totP2 = 0;
+  let totP1 = 0, totP2 = 0, totP3 = 0;
   stops.forEach(s => {
     const o = getOrder(s.id);
-    totP1 += o.p1; totP2 += o.p2;
-    const total = o.p1 + o.p2;
-    txt += `| ${padE(s.name, nameW)} | ${padS(o.p1||'-', col1)} | ${padS(o.p2||'-', col2)} | ${padS(total, col3)} |\n`;
+    totP1 += o.p1; totP2 += o.p2; totP3 += o.p3;
+    const total = o.p1 + o.p2 + o.p3;
+    txt += `| ${padE(s.name, nameW)} | ${padS(o.p1||'-', col1)} | ${padS(o.p2||'-', col2)} | ${padS(o.p3||'-', col3)} | ${padS(total, col4)} |\n`;
     txt += sep + '\n';
   });
 
   // Total row
-  txt += `| ${padE('TOTAL', nameW)} | ${padS(totP1, col1)} | ${padS(totP2, col2)} | ${padS(totP1+totP2, col3)} |\n`;
+  txt += `| ${padE('TOTAL', nameW)} | ${padS(totP1, col1)} | ${padS(totP2, col2)} | ${padS(totP3, col3)} | ${padS(totP1+totP2+totP3, col4)} |\n`;
   txt += sep + '\n';
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1140,11 +1192,12 @@ function fallbackCopy(txt) {
 // ── TOTALS PAGE ──────────────────────────────────────────────────────────────
 function updateTotalsPage() {
   const stops = orderedStores();
-  let p1=0, p2=0;
-  stops.forEach(s => { const o=getOrder(s.id); p1+=o.p1; p2+=o.p2; });
+  let p1=0, p2=0, p3=0;
+  stops.forEach(s => { const o=getOrder(s.id); p1+=o.p1; p2+=o.p2; p3+=o.p3; });
   document.getElementById('tot-p1').textContent = p1;
   document.getElementById('tot-p2').textContent = p2;
-  document.getElementById('tot-total').textContent = p1+p2;
+  document.getElementById('tot-p3').textContent = p3;
+  document.getElementById('tot-total').textContent = p1+p2+p3;
   document.getElementById('tot-stores').textContent = stops.length;
 
   const bl = document.getElementById('breakdownList');
@@ -1157,6 +1210,7 @@ function updateTotalsPage() {
     const pills = [];
     if (o.p1) pills.push(`<span class="breakdown-qty">🍞 ${o.p1}</span>`);
     if (o.p2) pills.push(`<span class="breakdown-qty">🥐 ${o.p2}</span>`);
+    if (o.p3) pills.push(`<span class="breakdown-qty">🥙 ${o.p3}</span>`);
     return `<div class="breakdown-row">
       <div class="breakdown-store">
         ${s.name}
