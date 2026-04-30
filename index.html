@@ -85,11 +85,15 @@
 
   /* ── SUMMARY STRIP ── */
   .summary-strip {
-    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     gap: 0; background: var(--warm-white);
     border-bottom: 1px solid var(--border);
   }
   .summary-card {
+    flex: 0 0 auto;
+    min-width: 92px;
     padding: 14px 10px; text-align: center;
     border-right: 1px solid var(--border);
   }
@@ -450,6 +454,9 @@
     <div class="tab" onclick="showPage('totals')" id="tab-totals">
       <span class="tab-icon">📦</span>Totals
     </div>
+    <div class="tab" onclick="showPage('products')" id="tab-products">
+      <span class="tab-icon">🧁</span>Products
+    </div>
     <div class="tab" onclick="showPage('stores')" id="tab-stores">
       <span class="tab-icon">🏪</span>Stores
     </div>
@@ -469,18 +476,7 @@
       <div class="summary-val" id="sum-stores">0</div>
       <div class="summary-lbl">Stores</div>
     </div>
-    <div class="summary-card">
-      <div class="summary-val" id="sum-p1">0</div>
-      <div class="summary-lbl">6 Pack</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-val" id="sum-p2">0</div>
-      <div class="summary-lbl">9 Pack</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-val" id="sum-p3">0</div>
-      <div class="summary-lbl">Usal Pav</div>
-    </div>
+    <div id="summaryProducts" style="display:contents"></div>
   </div>
 
   <div class="section-header">
@@ -522,18 +518,7 @@
       <div class="total-val" id="tot-total">0</div>
       <div class="total-lbl">Total Items to Bake & Pack</div>
     </div>
-    <div class="total-card">
-      <div class="total-val" id="tot-p1">0</div>
-      <div class="total-lbl">6 Pack</div>
-    </div>
-    <div class="total-card">
-      <div class="total-val" id="tot-p2">0</div>
-      <div class="total-lbl">9 Pack</div>
-    </div>
-    <div class="total-card">
-      <div class="total-val" id="tot-p3">0</div>
-      <div class="total-lbl">Usal Pav</div>
-    </div>
+    <div id="totProducts" style="display:contents"></div>
     <div class="total-card">
       <div class="total-val" id="tot-stores">0</div>
       <div class="total-lbl">Stores Ordered</div>
@@ -552,7 +537,31 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════
-     PAGE 4 — STORES
+     PAGE 4 — PRODUCTS
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-products">
+  <div class="section-header" style="padding-top:20px">
+    <span class="section-title">Manage Products</span>
+    <button onclick="openAddProduct()" style="
+      background:var(--rust);color:#fff;border:none;
+      border-radius:20px;padding:7px 16px;
+      font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;
+      cursor:pointer;display:flex;align-items:center;gap:5px
+    ">＋ Add Product</button>
+  </div>
+
+  <div style="padding:0 16px 8px">
+    <div style="font-size:12px;color:var(--muted);background:var(--warm-white);
+      border:1px solid var(--border);border-radius:10px;padding:10px 14px;line-height:1.6">
+      💡 Add or delete products. Changes save instantly and update Orders, Route &amp; Totals.
+    </div>
+  </div>
+
+  <div id="productManageList" style="padding:0 16px;display:flex;flex-direction:column;gap:8px"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 5 — STORES
 ══════════════════════════════════════════════════════ -->
 <div class="page" id="page-stores">
 
@@ -574,7 +583,67 @@
     </div>
   </div>
 
-  <div id="storeManageList" style="padding:0 16px;display:flex;flex-direction:column;gap:8px"></div>
+<div id="storeManageList" style="padding:0 16px;display:flex;flex-direction:column;gap:8px"></div>
+</div>
+
+<!-- ── ADD / EDIT PRODUCT MODAL ── -->
+<div id="productModal" style="
+  display:none;position:fixed;inset:0;z-index:800;
+  background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);
+  align-items:flex-end;justify-content:center;
+">
+  <div style="
+    background:var(--warm-white);width:100%;max-width:480px;
+    border-radius:24px 24px 0 0;
+    padding:24px 20px calc(env(safe-area-inset-bottom,0px) + 24px);
+    font-family:'DM Sans',sans-serif;
+  ">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--brown)"
+           id="productModalTitle">Add Product</div>
+      <button onclick="closeProductModal()" style="
+        background:var(--border);border:none;border-radius:50%;
+        width:32px;height:32px;font-size:18px;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;color:var(--brown)
+      ">✕</button>
+    </div>
+
+    <input type="hidden" id="editProductId">
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Product Name *</label>
+        <input id="pName" type="text" placeholder="e.g. 6 Pack" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Icon (optional)</label>
+        <input id="pIcon" type="text" placeholder="e.g. 🍞" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button id="deleteProductBtn" onclick="deleteProduct()" style="
+        flex:1;background:#fff;border:1.5px solid var(--red);
+        color:var(--red);border-radius:14px;padding:12px 10px;
+        font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;
+        cursor:pointer;display:none
+      ">Delete</button>
+      <button onclick="saveProduct()" style="
+        flex:1;background:var(--rust);border:none;
+        color:#fff;border-radius:14px;padding:12px 10px;
+        font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;
+        cursor:pointer
+      ">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── ADD / EDIT STORE MODAL ── -->
@@ -680,11 +749,16 @@ const DEFAULT_STORES = [
   {id:22, name:'Icy Spicy', area:'Parramatta', address:'146 James Ruse Dr, Parramatta NSW 2150', seq:22},
 ];
 
-const PRODUCTS = ["6 Pack", "9 Pack", "Usal Pav"];
+const DEFAULT_PRODUCTS = [
+  {id:'p1', name:'6 Pack', icon:'🍞'},
+  {id:'p2', name:'9 Pack', icon:'🥐'},
+  {id:'p3', name:'Usal Pav', icon:'🥙'},
+];
 const STORAGE_KEY_V2  = 'bakery_orders_v2';
 const STORAGE_KEY_V1  = 'bakery_orders_v1';
 const DATE_KEY     = 'bakery_date_v1';
 const STORES_KEY   = 'bakery_stores_v1';
+const PRODUCTS_KEY = 'bakery_products_v1';
 
 // ── SAFE STORAGE (works for file://, Safari, Chrome, anywhere) ───────────────
 const _mem = {};  // in-memory fallback
@@ -701,6 +775,58 @@ const store = {
 };
 
 let STORES = [];
+let PRODUCTS = [];
+
+function safeText(s) {
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function normalizeProduct(p) {
+  const id = String(p?.id ?? '').trim();
+  const name = String(p?.name ?? '').trim();
+  const icon = String(p?.icon ?? '').trim();
+  if (!id || !name) return null;
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+  return { id, name, icon: icon || '📦' };
+}
+
+function loadProducts() {
+  try {
+    const saved = store.get(PRODUCTS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length) {
+        const norm = parsed.map(normalizeProduct).filter(Boolean);
+        if (norm.length) { PRODUCTS = norm; return; }
+      }
+    }
+  } catch(e) {}
+  PRODUCTS = JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
+  saveProducts();
+}
+
+function saveProducts() {
+  try { store.set(PRODUCTS_KEY, JSON.stringify(PRODUCTS)); } catch(e) {}
+}
+
+function nextProductId() {
+  const nums = PRODUCTS
+    .map(p => String(p.id || '').match(/^p(\d+)$/))
+    .filter(Boolean)
+    .map(m => parseInt(m[1], 10))
+    .filter(n => Number.isFinite(n));
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return `p${next}`;
+}
+
+function getProduct(id) {
+  return PRODUCTS.find(p => p.id === id) || null;
+}
 
 function loadStores() {
   try {
@@ -720,7 +846,15 @@ function nextStoreId() {
 }
 
 // ── STATE ────────────────────────────────────────────────────────────────────
-let orders = {};  // { storeId: { p1: 0, p2: 0, p3: 0 } }
+let orders = {};  // { storeId: { [productId]: qty } }
+
+function sanitizeQty(v) {
+  return Math.max(0, parseInt(v, 10) || 0);
+}
+
+function orderTotal(o) {
+  return PRODUCTS.reduce((sum, p) => sum + (sanitizeQty(o?.[p.id]) || 0), 0);
+}
 
 function todayStr() {
   return new Date().toISOString().slice(0,10);
@@ -758,22 +892,29 @@ function saveOrders() {
 
 function getOrder(id) {
   const o = orders[id] || {};
-  return {
-    p1: Math.max(0, parseInt(o.p1) || 0),
-    p2: Math.max(0, parseInt(o.p2) || 0),
-    p3: Math.max(0, parseInt(o.p3) || 0),
-  };
+  const out = {};
+  PRODUCTS.forEach(p => out[p.id] = sanitizeQty(o[p.id]));
+  return out;
 }
 
-function setOrder(id, p1, p2, p3) {
-  orders[id] = {
-    p1: Math.max(0, p1||0),
-    p2: Math.max(0, p2||0),
-    p3: Math.max(0, p3||0),
-  };
+function setOrderQty(storeId, productId, qty) {
+  const pid = String(productId || '');
+  if (!getProduct(pid)) return;
+  const val = sanitizeQty(qty);
+  const next = { ...(orders[storeId] || {}) };
+  next[pid] = val;
+
+  // If everything is 0, remove the store entry to keep storage small
+  const hasAny = PRODUCTS.some(p => sanitizeQty(next[p.id]) > 0);
+  if (!hasAny) {
+    delete orders[storeId];
+  } else {
+    orders[storeId] = next;
+  }
+
   saveOrders();
   updateSummary();
-  updateCardState(id);
+  updateCardState(storeId);
 }
 
 // ── DATE DISPLAY ─────────────────────────────────────────────────────────────
@@ -784,65 +925,67 @@ function initDate() {
     d.toLocaleDateString('en-AU', opts);
 }
 
+let _productCardsSig = '';
+function ensureProductCards() {
+  const sig = PRODUCTS.map(p => `${p.id}:${p.name}:${p.icon || ''}`).join('|');
+  if (sig === _productCardsSig) return;
+  _productCardsSig = sig;
+
+  const sumWrap = document.getElementById('summaryProducts');
+  if (sumWrap) {
+    sumWrap.innerHTML = PRODUCTS.map(p => `
+      <div class="summary-card">
+        <div class="summary-val" id="sum-${p.id}">0</div>
+        <div class="summary-lbl">${safeText(p.name)}</div>
+      </div>
+    `).join('');
+  }
+
+  const totWrap = document.getElementById('totProducts');
+  if (totWrap) {
+    totWrap.innerHTML = PRODUCTS.map(p => `
+      <div class="total-card">
+        <div class="total-val" id="tot-${p.id}">0</div>
+        <div class="total-lbl">${safeText(p.icon || '📦')} ${safeText(p.name)}</div>
+      </div>
+    `).join('');
+  }
+}
+
 // ── BUILD ORDERS PAGE ────────────────────────────────────────────────────────
 function buildOrdersPage() {
   const list = document.getElementById('storeList');
   list.innerHTML = '';
   STORES.forEach(store => {
     const o = getOrder(store.id);
+    const total = orderTotal(o);
     const card = document.createElement('div');
-    card.className = 'store-card' + (o.p1+o.p2+o.p3 > 0 ? ' has-order' : '');
+    card.className = 'store-card' + (total > 0 ? ' has-order' : '');
     card.id = `card-${store.id}`;
     card.innerHTML = `
       <div class="store-card-header" onclick="toggleCard(${store.id})">
         <div class="store-seq">${store.seq}</div>
         <div class="store-info">
-          <div class="store-name">${store.name}</div>
-          <div class="store-area">${store.area}</div>
+          <div class="store-name">${safeText(store.name)}</div>
+          <div class="store-area">${safeText(store.area)}</div>
         </div>
-        <div class="store-total-badge" id="badge-${store.id}">${o.p1+o.p2+o.p3}</div>
+        <div class="store-total-badge" id="badge-${store.id}">${total}</div>
       </div>
       <div class="store-inputs">
-        <div class="input-row">
-          <div class="input-label">
-            6 Pack
+        ${PRODUCTS.map(p => `
+          <div class="input-row">
+            <div class="input-label">${safeText(p.icon || '📦')} ${safeText(p.name)}</div>
+            <div class="qty-control">
+              <button class="qty-btn" onclick="changeQty(${store.id},'${safeText(p.id)}',-1)">−</button>
+              <input class="qty-input" type="number" inputmode="numeric" id="${safeText(p.id)}-${store.id}"
+                value="${o[p.id] || 0}" min="0"
+                onchange="inputChanged(${store.id},'${safeText(p.id)}',this.value)"
+                onfocus="this.select()">
+              <button class="qty-btn" onclick="changeQty(${store.id},'${safeText(p.id)}',1)">+</button>
+            </div>
           </div>
-          <div class="qty-control">
-            <button class="qty-btn" onclick="changeQty(${store.id},'p1',-1)">−</button>
-            <input class="qty-input" type="number" inputmode="numeric" id="p1-${store.id}"
-              value="${o.p1}" min="0"
-              onchange="inputChanged(${store.id},'p1',this.value)"
-              onfocus="this.select()">
-            <button class="qty-btn" onclick="changeQty(${store.id},'p1',1)">+</button>
-          </div>
-        </div>
-        <div class="input-row">
-          <div class="input-label">
-            9 Pack
-          </div>
-          <div class="qty-control">
-            <button class="qty-btn" onclick="changeQty(${store.id},'p2',-1)">−</button>
-            <input class="qty-input" type="number" inputmode="numeric" id="p2-${store.id}"
-              value="${o.p2}" min="0"
-              onchange="inputChanged(${store.id},'p2',this.value)"
-              onfocus="this.select()">
-            <button class="qty-btn" onclick="changeQty(${store.id},'p2',1)">+</button>
-          </div>
-        </div>
-        <div class="input-row">
-          <div class="input-label">
-            Usal Pav
-          </div>
-          <div class="qty-control">
-            <button class="qty-btn" onclick="changeQty(${store.id},'p3',-1)">−</button>
-            <input class="qty-input" type="number" inputmode="numeric" id="p3-${store.id}"
-              value="${o.p3}" min="0"
-              onchange="inputChanged(${store.id},'p3',this.value)"
-              onfocus="this.select()">
-            <button class="qty-btn" onclick="changeQty(${store.id},'p3',1)">+</button>
-          </div>
-        </div>
-        <div class="address-line">📍 ${store.address}</div>
+        `).join('')}
+        <div class="address-line">📍 ${safeText(store.address)}</div>
       </div>
     `;
     list.appendChild(card);
@@ -865,28 +1008,20 @@ function toggleCard(id) {
 function changeQty(storeId, product, delta) {
   const input = document.getElementById(`${product}-${storeId}`);
   const o = getOrder(storeId);
-  const newVal = Math.max(0, (o[product]||0) + delta);
+  const newVal = Math.max(0, (o[product] || 0) + delta);
   input.value = newVal;
-  o[product] = newVal;
-  setOrder(
-    storeId,
-    product==='p1'?newVal:o.p1,
-    product==='p2'?newVal:o.p2,
-    product==='p3'?newVal:o.p3
-  );
+  setOrderQty(storeId, product, newVal);
 }
 
 function inputChanged(storeId, product, val) {
-  const o = getOrder(storeId);
-  o[product] = parseInt(val)||0;
-  setOrder(storeId, o.p1, o.p2, o.p3);
+  setOrderQty(storeId, product, val);
 }
 
 function updateCardState(id) {
   const o = getOrder(id);
   const card = document.getElementById(`card-${id}`);
   const badge = document.getElementById(`badge-${id}`);
-  const total = o.p1 + o.p2 + o.p3;
+  const total = orderTotal(o);
   badge.textContent = total;
   if (total > 0) {
     card.classList.add('has-order');
@@ -898,22 +1033,25 @@ function updateCardState(id) {
 }
 
 function updateSummary() {
-  let stores=0, p1=0, p2=0, p3=0;
+  ensureProductCards();
+  let stores = 0;
+  const sums = Object.fromEntries(PRODUCTS.map(p => [p.id, 0]));
   STORES.forEach(s => {
     const o = getOrder(s.id);
-    if (o.p1+o.p2+o.p3 > 0) stores++;
-    p1 += o.p1; p2 += o.p2; p3 += o.p3;
+    if (orderTotal(o) > 0) stores++;
+    PRODUCTS.forEach(p => sums[p.id] += sanitizeQty(o[p.id]));
   });
   document.getElementById('sum-stores').textContent = stores;
-  document.getElementById('sum-p1').textContent = p1;
-  document.getElementById('sum-p2').textContent = p2;
-  document.getElementById('sum-p3').textContent = p3;
+  PRODUCTS.forEach(p => {
+    const el = document.getElementById(`sum-${p.id}`);
+    if (el) el.textContent = sums[p.id];
+  });
 }
 
 // ── ROUTE PAGE ───────────────────────────────────────────────────────────────
 function orderedStores() {
   return STORES
-    .filter(s => { const o=getOrder(s.id); return o.p1+o.p2+o.p3 > 0; })
+    .filter(s => { const o=getOrder(s.id); return orderTotal(o) > 0; })
     .sort((a,b) => a.seq - b.seq);
 }
 
@@ -937,19 +1075,18 @@ function updateRoutePage() {
   list.innerHTML = '';
   stops.forEach((store, i) => {
     const o = getOrder(store.id);
-    const pills = [];
-    if (o.p1 > 0) pills.push(`<span class="stop-pill">📦 ${o.p1} × 6 Pack</span>`);
-    if (o.p2 > 0) pills.push(`<span class="stop-pill">📦 ${o.p2} × 9 Pack</span>`);
-    if (o.p3 > 0) pills.push(`<span class="stop-pill">📦 ${o.p3} × Usal Pav</span>`);
+    const pills = PRODUCTS
+      .filter(p => sanitizeQty(o[p.id]) > 0)
+      .map(p => `<span class="stop-pill">📦 ${sanitizeQty(o[p.id])} × ${safeText(p.name)}</span>`);
     list.innerHTML += `
       <div class="route-stop">
         <div class="stop-num">${i+1}</div>
         <div class="stop-info">
-          <div class="stop-name">${store.name}</div>
-          <div class="stop-addr">${store.address}</div>
+          <div class="stop-name">${safeText(store.name)}</div>
+          <div class="stop-addr">${safeText(store.address)}</div>
           <div class="stop-pills">${pills.join('')}</div>
         </div>
-        <div class="stop-total">${o.p1+o.p2+o.p3}</div>
+        <div class="stop-total">${orderTotal(o)}</div>
       </div>`;
   });
 }
@@ -962,6 +1099,87 @@ function openMaps() {
   window.open(`http://maps.apple.com/?daddr=${daddr}`, '_blank');
 }
 
+function buildTableData(stops) {
+  const header = ['Store', ...PRODUCTS.map(p => p.name), 'Total'];
+  const totalsByPid = Object.fromEntries(PRODUCTS.map(p => [p.id, 0]));
+  let grandTotal = 0;
+
+  const rows = stops.map(s => {
+    const o = getOrder(s.id);
+    const row = [s.name];
+    let rowTotal = 0;
+    PRODUCTS.forEach(p => {
+      const q = sanitizeQty(o[p.id]);
+      totalsByPid[p.id] += q;
+      rowTotal += q;
+      row.push(q > 0 ? q : '-');
+    });
+    grandTotal += rowTotal;
+    row.push(rowTotal);
+    return row;
+  });
+
+  const totalsRow = ['TOTAL', ...PRODUCTS.map(p => totalsByPid[p.id]), grandTotal];
+  return { header, rows, totalsRow };
+}
+
+function renderWhitespaceTable(data, dateStr) {
+  const { header, rows, totalsRow } = data;
+  const cols = header.length;
+  const widths = Array.from({length: cols}, (_, i) => {
+    const all = [header[i], totalsRow[i], ...rows.map(r => r[i])].map(v => String(v));
+    return Math.max(...all.map(s => s.length));
+  });
+
+  const pL = (s, n) => String(s).padEnd(n);
+  const pR = (s, n) => String(s).padStart(n);
+  const joinRow = (r) => [
+    pL(r[0], widths[0]),
+    ...r.slice(1).map((v, i) => pR(v, widths[i+1]))
+  ].join('  ');
+
+  const sep = widths.map(w => '-'.repeat(w)).join('  ');
+  return [
+    dateStr,
+    joinRow(header),
+    sep,
+    ...rows.map(joinRow),
+    sep,
+    joinRow(totalsRow),
+  ].join('\n');
+}
+
+function renderBoxTable(data, dateStr) {
+  const { header, rows, totalsRow } = data;
+  const cols = header.length;
+  const widths = Array.from({length: cols}, (_, i) => {
+    const all = [header[i], totalsRow[i], ...rows.map(r => r[i])].map(v => String(v));
+    return Math.max(...all.map(s => s.length));
+  });
+
+  const padE = (s, n) => String(s).padEnd(n);
+  const padS = (s, n) => String(s).padStart(n);
+  const sep = '+' + widths.map(w => '-'.repeat(w + 2)).join('+') + '+';
+  const sepBold = '+' + widths.map(w => '='.repeat(w + 2)).join('+') + '+';
+  const rowLine = (r) => {
+    const cells = r.map((v, i) => {
+      const str = String(v);
+      return i === 0 ? padE(str, widths[i]) : padS(str, widths[i]);
+    });
+    return '| ' + cells.join(' | ') + ' |';
+  };
+
+  return [
+    `📅 ${dateStr}`,
+    sep,
+    rowLine(header),
+    sepBold,
+    ...rows.flatMap(r => [rowLine(r), sep]),
+    rowLine(totalsRow),
+    sep,
+  ].join('\n');
+}
+
 function copyCleanTable() {
   const stops = orderedStores();
   if (!stops.length) { showToast('No orders yet!'); return; }
@@ -972,27 +1190,7 @@ function copyCleanTable() {
     weekday:'long', day:'numeric', month:'long', year:'numeric'
   });
 
-  const nameW = Math.max(8, ...stops.map(s => s.name.length));
-  const c1 = 6, c2 = 6, c3 = 8, c4 = 5;
-  const pL = (s, n) => String(s).padEnd(n);
-  const pR = (s, n) => String(s).padStart(n);
-  const sep = `${'-'.repeat(nameW)}  ${'-'.repeat(c1)}  ${'-'.repeat(c2)}  ${'-'.repeat(c3)}  ${'-'.repeat(c4)}`;
-
-  let totP1 = 0, totP2 = 0, totP3 = 0;
-  const dataRows = stops.map(s => {
-    const o = getOrder(s.id);
-    totP1 += o.p1; totP2 += o.p2; totP3 += o.p3;
-    return `${pL(s.name, nameW)}  ${pR(o.p1||'-', c1)}  ${pR(o.p2||'-', c2)}  ${pR(o.p3||'-', c3)}  ${pR(o.p1+o.p2+o.p3, c4)}`;
-  });
-
-  const table = [
-    dateStr,
-    `${pL('Store', nameW)}  ${pR('6 Pack', c1)}  ${pR('9 Pack', c2)}  ${pR('Usal Pav', c3)}  ${pR('Total', c4)}`,
-    sep,
-    ...dataRows,
-    sep,
-    `${pL('TOTAL', nameW)}  ${pR(totP1, c1)}  ${pR(totP2, c2)}  ${pR(totP3, c3)}  ${pR(totP1+totP2+totP3, c4)}`,
-  ].join('\n');
+  const table = renderWhitespaceTable(buildTableData(stops), dateStr);
 
   // Wrap in ``` so WhatsApp renders monospace (perfectly aligned)
   const output = '```\n' + table + '\n```';
@@ -1015,7 +1213,8 @@ function savePDF() {
   }
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const orientation = PRODUCTS.length > 3 ? 'landscape' : 'portrait';
+  const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1023,13 +1222,36 @@ function savePDF() {
     weekday:'long', day:'numeric', month:'long', year:'numeric'
   });
 
-  const pageW = 210;
+  const pageW = orientation === 'landscape' ? 297 : 210;
   const margin = 16;
   const usableW = pageW - margin * 2;
 
   // Column widths (mm)
-  const c0 = usableW - 14 - 14 - 14 - 14;  // store name — takes remaining
-  const c1 = 14, c2 = 14, c3 = 14, c4 = 14;
+  const totalColW = 14;
+  let prodColW = 14;
+  let storeColW = usableW - totalColW - prodColW * PRODUCTS.length;
+  if (storeColW < 60) {
+    prodColW = 12;
+    storeColW = usableW - totalColW - prodColW * PRODUCTS.length;
+  }
+  if (storeColW < 45) {
+    prodColW = 10;
+    storeColW = usableW - totalColW - prodColW * PRODUCTS.length;
+  }
+  if (storeColW < 35) {
+    showToast('Too many products for PDF — reduce products or use Copy Table');
+    return;
+  }
+
+  const cols = [
+    { key: 'store', label: 'Store', w: storeColW, align: 'left' },
+    ...PRODUCTS.map(p => ({ key: p.id, label: p.name, w: prodColW, align: 'center' })),
+    { key: 'total', label: 'Total', w: totalColW, align: 'center' },
+  ];
+
+  const xPos = [];
+  let xCursor = margin;
+  cols.forEach(c => { xPos.push(xCursor); xCursor += c.w; });
   const rowH = 9;
   const headH = 11;
 
@@ -1059,18 +1281,24 @@ function savePDF() {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text('Store',  margin + 3, y + 7.5);
-  doc.text('6 Pack', margin + c0 + c1/2, y + 7.5, {align:'center'});
-  doc.text('9 Pack', margin + c0 + c1 + c2/2, y + 7.5, {align:'center'});
-  doc.text('Usal Pav', margin + c0 + c1 + c2 + c3/2, y + 7.5, {align:'center'});
-  doc.text('Total',  margin + c0 + c1 + c2 + c3 + c4/2, y + 7.5, {align:'center'});
+  cols.forEach((c, idx) => {
+    const label = doc.splitTextToSize(String(c.label), c.w - 2)[0];
+    if (idx === 0) {
+      doc.text(label, xPos[idx] + 3, y + 7.5);
+    } else {
+      doc.text(label, xPos[idx] + c.w / 2, y + 7.5, { align:'center' });
+    }
+  });
   y += headH;
 
   // Data rows
-  let totP1 = 0, totP2 = 0, totP3 = 0;
+  const totalsByPid = Object.fromEntries(PRODUCTS.map(p => [p.id, 0]));
+  let grandTotal = 0;
   stops.forEach((s, i) => {
     const o = getOrder(s.id);
-    totP1 += o.p1; totP2 += o.p2; totP3 += o.p3;
+    const rowTotal = orderTotal(o);
+    PRODUCTS.forEach(p => totalsByPid[p.id] += sanitizeQty(o[p.id]));
+    grandTotal += rowTotal;
 
     // Row bg
     doc.setFillColor(i % 2 === 0 ? 255 : 248, i % 2 === 0 ? 255 : 248, i % 2 === 0 ? 255 : 248);
@@ -1086,13 +1314,16 @@ function savePDF() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     // Truncate long names
-    const name = doc.splitTextToSize(s.name, c0 - 4)[0];
-    doc.text(name, margin + 3, y + 6.2);
-    doc.text(String(o.p1 || '-'), margin + c0 + c1/2, y + 6.2, {align:'center'});
-    doc.text(String(o.p2 || '-'), margin + c0 + c1 + c2/2, y + 6.2, {align:'center'});
-    doc.text(String(o.p3 || '-'), margin + c0 + c1 + c2 + c3/2, y + 6.2, {align:'center'});
+    const name = doc.splitTextToSize(String(s.name || ''), storeColW - 4)[0];
+    doc.text(name, xPos[0] + 3, y + 6.2);
+
+    PRODUCTS.forEach((p, pi) => {
+      const q = sanitizeQty(o[p.id]);
+      const colIdx = 1 + pi;
+      doc.text(String(q || '-'), xPos[colIdx] + cols[colIdx].w / 2, y + 6.2, {align:'center'});
+    });
     doc.setFont('helvetica', 'bold');
-    doc.text(String(o.p1 + o.p2 + o.p3), margin + c0 + c1 + c2 + c3 + c4/2, y + 6.2, {align:'center'});
+    doc.text(String(rowTotal), xPos[cols.length - 1] + cols[cols.length - 1].w / 2, y + 6.2, {align:'center'});
     y += rowH;
   });
 
@@ -1102,24 +1333,25 @@ function savePDF() {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text('TOTAL', margin + 3, y + 7.5);
-  doc.text(String(totP1), margin + c0 + c1/2, y + 7.5, {align:'center'});
-  doc.text(String(totP2), margin + c0 + c1 + c2/2, y + 7.5, {align:'center'});
-  doc.text(String(totP3), margin + c0 + c1 + c2 + c3/2, y + 7.5, {align:'center'});
-  doc.text(String(totP1 + totP2 + totP3), margin + c0 + c1 + c2 + c3 + c4/2, y + 7.5, {align:'center'});
+  doc.text('TOTAL', xPos[0] + 3, y + 7.5);
+  PRODUCTS.forEach((p, pi) => {
+    const colIdx = 1 + pi;
+    doc.text(String(totalsByPid[p.id]), xPos[colIdx] + cols[colIdx].w / 2, y + 7.5, {align:'center'});
+  });
+  doc.text(String(grandTotal), xPos[cols.length - 1] + cols[cols.length - 1].w / 2, y + 7.5, {align:'center'});
+  y += headH;
 
   // Outer border
   doc.setDrawColor(17, 17, 17);
   doc.setLineWidth(0.4);
-  doc.rect(margin, margin, usableW, y + headH - margin, 'S');
+  doc.rect(margin, margin, usableW, y - margin, 'S');
 
   // Vertical dividers
   doc.setLineWidth(0.2);
   doc.setDrawColor(200, 200, 200);
-  const dividers = [margin + c0, margin + c0 + c1, margin + c0 + c1 + c2, margin + c0 + c1 + c2 + c3];
-  dividers.forEach(x => {
-    doc.line(x, margin, x, y + headH);
-  });
+  for (let i = 1; i < cols.length; i++) {
+    doc.line(xPos[i], margin, xPos[i], y);
+  }
 
   // Save
   const filename = 'GJ06-delivery-' + tomorrow.toISOString().slice(0,10) + '.pdf';
@@ -1136,35 +1368,7 @@ function copyTable() {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const dateStr = tomorrow.toLocaleDateString('en-AU', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 
-  // Fixed column widths
-  const nameW  = Math.max(12, ...stops.map(s => s.name.length));
-  const col1 = 7;   // 6 Pack
-  const col2 = 7;   // 9 Pack
-  const col3 = 9;   // Usal Pav
-  const col4 = 6;   // Total
-
-  const padE = (s, n) => String(s).padEnd(n);
-  const padS = (s, n) => String(s).padStart(n);
-
-  const sep = `+${'-'.repeat(nameW+2)}+${'-'.repeat(col1+2)}+${'-'.repeat(col2+2)}+${'-'.repeat(col3+2)}+${'-'.repeat(col4+2)}+`;
-
-  let txt = `📅 ${dateStr}\n`;
-  txt += sep + '\n';
-  txt += `| ${padE('Store', nameW)} | ${padE('6 Pack', col1)} | ${padE('9 Pack', col2)} | ${padE('Usal Pav', col3)} | ${padE('Total', col4)} |\n`;
-  txt += sep.replace(/-/g, '=') + '\n';
-
-  let totP1 = 0, totP2 = 0, totP3 = 0;
-  stops.forEach(s => {
-    const o = getOrder(s.id);
-    totP1 += o.p1; totP2 += o.p2; totP3 += o.p3;
-    const total = o.p1 + o.p2 + o.p3;
-    txt += `| ${padE(s.name, nameW)} | ${padS(o.p1||'-', col1)} | ${padS(o.p2||'-', col2)} | ${padS(o.p3||'-', col3)} | ${padS(total, col4)} |\n`;
-    txt += sep + '\n';
-  });
-
-  // Total row
-  txt += `| ${padE('TOTAL', nameW)} | ${padS(totP1, col1)} | ${padS(totP2, col2)} | ${padS(totP3, col3)} | ${padS(totP1+totP2+totP3, col4)} |\n`;
-  txt += sep + '\n';
+  const txt = renderBoxTable(buildTableData(stops), dateStr);
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(txt).then(() => showToast('Table copied! Paste into WhatsApp ✓'))
@@ -1192,12 +1396,19 @@ function fallbackCopy(txt) {
 // ── TOTALS PAGE ──────────────────────────────────────────────────────────────
 function updateTotalsPage() {
   const stops = orderedStores();
-  let p1=0, p2=0, p3=0;
-  stops.forEach(s => { const o=getOrder(s.id); p1+=o.p1; p2+=o.p2; p3+=o.p3; });
-  document.getElementById('tot-p1').textContent = p1;
-  document.getElementById('tot-p2').textContent = p2;
-  document.getElementById('tot-p3').textContent = p3;
-  document.getElementById('tot-total').textContent = p1+p2+p3;
+  ensureProductCards();
+  const sums = Object.fromEntries(PRODUCTS.map(p => [p.id, 0]));
+  let grand = 0;
+  stops.forEach(s => {
+    const o = getOrder(s.id);
+    PRODUCTS.forEach(p => sums[p.id] += sanitizeQty(o[p.id]));
+    grand += orderTotal(o);
+  });
+  PRODUCTS.forEach(p => {
+    const el = document.getElementById(`tot-${p.id}`);
+    if (el) el.textContent = sums[p.id];
+  });
+  document.getElementById('tot-total').textContent = grand;
   document.getElementById('tot-stores').textContent = stops.length;
 
   const bl = document.getElementById('breakdownList');
@@ -1207,14 +1418,13 @@ function updateTotalsPage() {
   }
   bl.innerHTML = stops.map(s => {
     const o = getOrder(s.id);
-    const pills = [];
-    if (o.p1) pills.push(`<span class="breakdown-qty">🍞 ${o.p1}</span>`);
-    if (o.p2) pills.push(`<span class="breakdown-qty">🥐 ${o.p2}</span>`);
-    if (o.p3) pills.push(`<span class="breakdown-qty">🥙 ${o.p3}</span>`);
+    const pills = PRODUCTS
+      .filter(p => sanitizeQty(o[p.id]) > 0)
+      .map(p => `<span class="breakdown-qty">${safeText(p.icon || '📦')} ${sanitizeQty(o[p.id])}</span>`);
     return `<div class="breakdown-row">
       <div class="breakdown-store">
-        ${s.name}
-        <div class="breakdown-addr">${s.area}</div>
+        ${safeText(s.name)}
+        <div class="breakdown-addr">${safeText(s.area)}</div>
       </div>
       <div class="breakdown-qtys">${pills.join('')}</div>
     </div>`;
@@ -1229,6 +1439,7 @@ function showPage(name) {
   document.getElementById(`tab-${name}`).classList.add('active');
   if (name === 'route')  updateRoutePage();
   if (name === 'totals') updateTotalsPage();
+  if (name === 'products') buildProductsPage();
   if (name === 'stores') buildStoresPage();
 }
 
@@ -1252,6 +1463,132 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
+// ── PRODUCTS PAGE ────────────────────────────────────────────────────────────
+function buildProductsPage() {
+  const list = document.getElementById('productManageList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  PRODUCTS.forEach(p => {
+    const div = document.createElement('div');
+    div.style.cssText = `
+      background:var(--warm-white);border:1.5px solid var(--border);
+      border-radius:14px;padding:14px 16px;
+      display:flex;align-items:center;gap:12px;cursor:pointer;
+    `;
+    div.onclick = () => openEditProduct(p.id);
+    div.innerHTML = `
+      <div style="
+        width:34px;height:34px;border-radius:12px;
+        background:var(--cream);border:1px solid var(--border);
+        display:flex;align-items:center;justify-content:center;flex-shrink:0;
+        font-size:18px
+      ">${safeText(p.icon || '📦')}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:15px;font-weight:600;color:var(--brown)">${safeText(p.name)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">ID: ${safeText(p.id)}</div>
+      </div>
+      <div style="font-size:20px;color:var(--muted)">›</div>
+    `;
+    list.appendChild(div);
+  });
+
+  if (!PRODUCTS.length) {
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:14px">No products yet</div>`;
+  }
+}
+
+function openAddProduct() {
+  openProductModal(null);
+}
+
+function openEditProduct(id) {
+  const p = getProduct(id);
+  if (!p) return;
+  openProductModal(p);
+}
+
+function openProductModal(product) {
+  const modal = document.getElementById('productModal');
+  if (!modal) return;
+  document.getElementById('editProductId').value = product ? product.id : '';
+  document.getElementById('pName').value = product ? product.name : '';
+  document.getElementById('pIcon').value = product ? (product.icon || '') : '';
+  document.getElementById('productModalTitle').textContent = product ? 'Edit Product' : 'Add Product';
+  const delBtn = document.getElementById('deleteProductBtn');
+  delBtn.style.display = product ? 'block' : 'none';
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('pName').focus(), 50);
+}
+
+function closeProductModal() {
+  const modal = document.getElementById('productModal');
+  if (!modal) return;
+  modal.style.display = 'none';
+}
+
+function refreshAfterProductsChange() {
+  saveProducts();
+  ensureProductCards();
+  buildProductsPage();
+  buildOrdersPage();
+  updateSummary();
+  updateRoutePage();
+  updateTotalsPage();
+}
+
+function saveProduct() {
+  const editId = document.getElementById('editProductId').value || '';
+  const name = String(document.getElementById('pName').value || '').trim();
+  const icon = String(document.getElementById('pIcon').value || '').trim();
+  if (!name) { showToast('Enter a product name'); return; }
+
+  if (editId) {
+    const idx = PRODUCTS.findIndex(p => p.id === editId);
+    if (idx === -1) return;
+    PRODUCTS[idx] = { ...PRODUCTS[idx], name, icon: icon || '📦' };
+    closeProductModal();
+    refreshAfterProductsChange();
+    showToast('Product updated');
+    return;
+  }
+
+  const id = nextProductId();
+  PRODUCTS.push({ id, name, icon: icon || '📦' });
+  closeProductModal();
+  refreshAfterProductsChange();
+  showToast('Product added');
+}
+
+function deleteProduct() {
+  const editId = document.getElementById('editProductId').value || '';
+  if (!editId) return;
+  const p = getProduct(editId);
+  if (!p) return;
+  if (PRODUCTS.length <= 1) { showToast('Keep at least 1 product'); return; }
+  if (!confirm(`Delete "${p.name}"? This will remove its quantities from all stores for today.`)) return;
+
+  PRODUCTS = PRODUCTS.filter(x => x.id !== editId);
+  // Remove qty field from all orders
+  Object.keys(orders).forEach(storeId => {
+    if (orders[storeId] && Object.prototype.hasOwnProperty.call(orders[storeId], editId)) {
+      delete orders[storeId][editId];
+    }
+    // Clean empty store entries
+    const hasAny = PRODUCTS.some(pr => sanitizeQty(orders[storeId]?.[pr.id]) > 0);
+    if (!hasAny) delete orders[storeId];
+  });
+  saveOrders();
+  closeProductModal();
+  refreshAfterProductsChange();
+  showToast('Product deleted');
+}
+
+// Close modal on backdrop tap
+document.getElementById('productModal').addEventListener('click', function(e) {
+  if (e.target === this) closeProductModal();
+});
+
 // ── STORES PAGE ──────────────────────────────────────────────────────────────
 function buildStoresPage() {
   const list = document.getElementById('storeManageList');
@@ -1273,9 +1610,9 @@ function buildStoresPage() {
         display:flex;align-items:center;justify-content:center;flex-shrink:0;
       ">${store.seq}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:15px;font-weight:600;color:var(--brown)">${store.name}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--brown)">${safeText(store.name)}</div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px;
-          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${store.address || store.area}</div>
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safeText(store.address || store.area)}</div>
       </div>
       <div style="font-size:20px;color:var(--muted)">›</div>
     `;
@@ -1360,9 +1697,12 @@ document.getElementById('storeModal').addEventListener('click', function(e) {
 // ── NAVIGATION (updated) ─────────────────────────────────────────────────────
 // ── INIT ─────────────────────────────────────────────────────────────────────
 loadStores();
+loadProducts();
 loadOrders();
 initDate();
+ensureProductCards();
 buildOrdersPage();
+buildProductsPage();
 buildStoresPage();
 updateSummary();
 
