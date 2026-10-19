@@ -1,29 +1,50 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Bakery Delivery — Supabase schema
 --
--- Run once in: Supabase Dashboard → SQL Editor → New query → paste → Run.
--- Safe to re-run: it only creates what is missing and never deletes data.
+-- Run in: Supabase Dashboard → SQL Editor → New query → paste → Run.
+-- Safe to re-run (also upgrades a database set up with an earlier version):
+-- it only creates or replaces what it owns and never deletes data.
 --
 -- Security model
 --   • The app's URL and anon/publishable key are public (they are in index.html),
 --     so ALL protection comes from Row Level Security below + per-person logins.
 --   • Anonymous visitors can read or write nothing.
---   • role 'staff' : read everything, enter order quantities.
---   • role 'admin' : everything staff can do + manage stores & products.
---   • Nothing is ever hard-deleted from the app: stores/products are archived,
+--   • New accounts have NO role and see nothing until an admin assigns one.
+--
+--                                  admin   baker   driver
+--     stores, products, quantities  edit    view    view
+--     prices, payments, sales $     edit     -       -
+--     amount per stop               view     -      view   (via stop_amounts())
+--     production (what was baked)   edit    edit     -
+--
+--   • Money lives in separate admin-only tables, because RLS works per row:
+--     a column can't be hidden from a role that may read the row.
+--   • Nothing is hard-deleted from the app: stores/products are archived,
 --     so past orders keep their names.
 -- ═══════════════════════════════════════════════════════════════════════════
+
+-- Business time zone: decides which delivery dates are "today or later"
+-- when a price changes (past days keep the price they had).
+-- Change 'Australia/Sydney' in reprice_open_orders() if needed.
 
 
 -- ── 1. PROFILES & ROLES ────────────────────────────────────────────────────
 create table if not exists public.profiles (
   id         uuid primary key references auth.users (id) on delete cascade,
   full_name  text not null default '',
-  role       text not null default 'staff' check (role in ('admin', 'staff')),
+  role       text,
   created_at timestamptz not null default now()
 );
 
--- Every new login user gets a profile (role 'staff' until promoted)
+-- Upgrade from the first version (roles were 'admin' / 'staff')
+alter table public.profiles alter column role drop default;
+alter table public.profiles alter column role drop not null;
+alter table public.profiles drop constraint if exists profiles_role_check;
+update public.profiles set role = 'driver' where role = 'staff';
+alter table public.profiles add constraint profiles_role_check
+  check (role in ('admin', 'baker', 'driver'));
+
+-- Every new login user gets a profile, with no role until an admin sets one
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -48,8 +69,18 @@ insert into public.profiles (id, full_name)
 select id, split_part(email, '@', 1) from auth.users
 on conflict (id) do nothing;
 
--- security definer so policies can check the caller's role without
--- recursing through the profiles table's own RLS
+-- The caller's role (security definer: policies can use it without
+-- recursing through the profiles table's own RLS)
+create or replace function public.app_role()
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select role from public.profiles where id = auth.uid();
+$$;
+
 create or replace function public.is_admin()
 returns boolean
 language sql
@@ -57,9 +88,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select exists (
-    select 1 from public.profiles where id = auth.uid() and role = 'admin'
-  );
+  select coalesce(public.app_role() = 'admin', false);
 $$;
 
 
@@ -85,19 +114,66 @@ create table if not exists public.products (
   updated_by uuid references auth.users (id) on delete set null
 );
 
--- One row per delivery date × store × product. Totals are always computed
--- from these rows, never stored, so they cannot drift out of sync.
--- Rows are never deleted (qty goes back to 0), which keeps realtime simple.
+-- One row per delivery date × store × product. Totals are computed from
+-- these rows, never stored. Rows are never deleted (qty goes back to 0).
 create table if not exists public.order_items (
   delivery_date date    not null,
   store_id      bigint  not null references public.stores (id),
   product_id    bigint  not null references public.products (id),
   qty           integer not null default 0 check (qty between 0 and 100000),
+  created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   updated_by    uuid references auth.users (id) on delete set null,
   primary key (delivery_date, store_id, product_id)
 );
+alter table public.order_items add column if not exists created_at timestamptz not null default now();
 
+-- Prices include GST. store_id null = the normal price for everyone;
+-- a row with a store_id is that store's special price.
+create table if not exists public.prices (
+  id         bigint generated by default as identity primary key,
+  product_id bigint not null references public.products (id),
+  store_id   bigint references public.stores (id),
+  price      numeric(10, 2) not null check (price >= 0 and price < 100000),
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users (id) on delete set null,
+  constraint prices_product_store_key unique nulls not distinct (product_id, store_id)
+);
+
+-- The unit price of each order line, kept by the triggers below:
+-- set when the line is created, updated for today/future when a price changes.
+create table if not exists public.order_item_prices (
+  delivery_date date   not null,
+  store_id      bigint not null,
+  product_id    bigint not null,
+  unit_price    numeric(10, 2) check (unit_price >= 0),
+  primary key (delivery_date, store_id, product_id),
+  foreign key (delivery_date, store_id, product_id)
+    references public.order_items (delivery_date, store_id, product_id) on delete cascade
+);
+
+-- How each stop paid. No row (or null) = not recorded yet.
+create table if not exists public.deliveries (
+  delivery_date date   not null,
+  store_id      bigint not null references public.stores (id),
+  payment_mode  text check (payment_mode in ('cash', 'online', 'unpaid')),
+  updated_at    timestamptz not null default now(),
+  updated_by    uuid references auth.users (id) on delete set null,
+  primary key (delivery_date, store_id)
+);
+
+-- What was actually baked, per day and product
+create table if not exists public.production (
+  production_date date    not null,
+  product_id      bigint  not null references public.products (id),
+  qty_baked       integer not null default 0 check (qty_baked between 0 and 1000000),
+  updated_at      timestamptz not null default now(),
+  updated_by      uuid references auth.users (id) on delete set null,
+  primary key (production_date, product_id)
+);
+
+
+-- ── 3. AUDIT + PRICING TRIGGERS ────────────────────────────────────────────
 -- Who changed what, and when (set by the database, so it can't be faked)
 create or replace function public.stamp_row()
 returns trigger
@@ -111,72 +187,182 @@ begin
 end;
 $$;
 
-drop trigger if exists stamp_stores on public.stores;
-create trigger stamp_stores before insert or update on public.stores
-  for each row execute function public.stamp_row();
+do $$
+declare t text;
+begin
+  foreach t in array array['stores', 'products', 'order_items', 'prices', 'deliveries', 'production'] loop
+    execute format('drop trigger if exists stamp_%1$s on public.%1$I', t);
+    execute format('create trigger stamp_%1$s before insert or update on public.%1$I
+                    for each row execute function public.stamp_row()', t);
+  end loop;
+end $$;
 
-drop trigger if exists stamp_products on public.products;
-create trigger stamp_products before insert or update on public.products
-  for each row execute function public.stamp_row();
+-- Store's special price, else the normal price, else null (no price set)
+create or replace function public.effective_price(p_store bigint, p_product bigint)
+returns numeric
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (select price from public.prices where store_id = p_store and product_id = p_product),
+    (select price from public.prices where store_id is null and product_id = p_product)
+  );
+$$;
 
-drop trigger if exists stamp_order_items on public.order_items;
-create trigger stamp_order_items before insert or update on public.order_items
-  for each row execute function public.stamp_row();
+-- New order line -> remember its price
+create or replace function public.price_new_order_item()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.order_item_prices (delivery_date, store_id, product_id, unit_price)
+  values (new.delivery_date, new.store_id, new.product_id,
+          public.effective_price(new.store_id, new.product_id))
+  on conflict (delivery_date, store_id, product_id) do nothing;
+  return null;
+end;
+$$;
+
+drop trigger if exists price_order_items on public.order_items;
+create trigger price_order_items after insert on public.order_items
+  for each row execute function public.price_new_order_item();
+
+-- Price changed -> today's and future lines of that product follow it;
+-- past days keep the price they were delivered at
+create or replace function public.reprice_open_orders()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  today date := (now() at time zone 'Australia/Sydney')::date;
+  pid   bigint := coalesce(new.product_id, old.product_id);
+begin
+  update public.order_item_prices oip
+     set unit_price = public.effective_price(oip.store_id, oip.product_id)
+   where oip.product_id = pid
+     and oip.delivery_date >= today;
+  return null;
+end;
+$$;
+
+drop trigger if exists reprice_on_price_change on public.prices;
+create trigger reprice_on_price_change after insert or update or delete on public.prices
+  for each row execute function public.reprice_open_orders();
+
+-- Lines that existed before prices were introduced
+insert into public.order_item_prices (delivery_date, store_id, product_id, unit_price)
+select oi.delivery_date, oi.store_id, oi.product_id, public.effective_price(oi.store_id, oi.product_id)
+from public.order_items oi
+on conflict do nothing;
+
+-- Amount per stop for one date (no unit prices exposed). Drivers use this.
+create or replace function public.stop_amounts(p_date date)
+returns table (store_id bigint, amount numeric)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select oi.store_id, sum(oi.qty * coalesce(oip.unit_price, 0))::numeric(12, 2)
+    from public.order_items oi
+    left join public.order_item_prices oip
+      on oip.delivery_date = oi.delivery_date
+     and oip.store_id = oi.store_id
+     and oip.product_id = oi.product_id
+   where oi.delivery_date = p_date
+     and oi.qty > 0
+     and public.app_role() in ('admin', 'driver')
+   group by oi.store_id;
+$$;
 
 
--- ── 3. ROW LEVEL SECURITY ──────────────────────────────────────────────────
-alter table public.profiles    enable row level security;
-alter table public.stores      enable row level security;
-alter table public.products    enable row level security;
-alter table public.order_items enable row level security;
+-- ── 4. ROW LEVEL SECURITY ──────────────────────────────────────────────────
+alter table public.profiles          enable row level security;
+alter table public.stores            enable row level security;
+alter table public.products          enable row level security;
+alter table public.order_items       enable row level security;
+alter table public.prices            enable row level security;
+alter table public.order_item_prices enable row level security;
+alter table public.deliveries        enable row level security;
+alter table public.production        enable row level security;
 
--- Belt and braces: anonymous visitors get no table access at all, and nobody
--- can delete or truncate through the API
-revoke all on public.profiles, public.stores, public.products, public.order_items from anon;
-revoke delete, truncate on public.profiles, public.stores, public.products, public.order_items from authenticated;
--- Roles are managed in the dashboard / SQL editor, never from the app
-revoke insert, update on public.profiles from authenticated;
+-- Belt and braces: anonymous visitors get no table access at all; nothing
+-- can be deleted or truncated through the API except special prices
+revoke all on public.profiles, public.stores, public.products, public.order_items,
+  public.prices, public.order_item_prices, public.deliveries, public.production from anon;
+revoke delete, truncate on public.profiles, public.stores, public.products, public.order_items,
+  public.order_item_prices, public.deliveries, public.production from authenticated;
+revoke truncate on public.prices from authenticated;
+-- Roles are managed in the dashboard / SQL editor; line prices only by triggers
+revoke insert, update on public.profiles, public.order_item_prices from authenticated;
+-- Internal helpers must not be callable through the API (would leak prices)
+revoke execute on function public.effective_price(bigint, bigint) from public, anon, authenticated;
+revoke execute on function public.price_new_order_item() from public, anon, authenticated;
+revoke execute on function public.reprice_open_orders() from public, anon, authenticated;
+revoke execute on function public.stop_amounts(date) from public, anon;
+grant  execute on function public.stop_amounts(date) to authenticated;
 
+-- Remove rules from earlier versions of this script
 drop policy if exists "profiles: read own (admins read all)" on public.profiles;
-create policy "profiles: read own (admins read all)" on public.profiles
-  for select to authenticated
-  using (id = (select auth.uid()) or (select public.is_admin()));
-
 drop policy if exists "stores: signed-in users read" on public.stores;
-create policy "stores: signed-in users read" on public.stores
-  for select to authenticated using (true);
 drop policy if exists "stores: admins add" on public.stores;
-create policy "stores: admins add" on public.stores
-  for insert to authenticated with check ((select public.is_admin()));
 drop policy if exists "stores: admins edit" on public.stores;
-create policy "stores: admins edit" on public.stores
-  for update to authenticated
-  using ((select public.is_admin())) with check ((select public.is_admin()));
-
 drop policy if exists "products: signed-in users read" on public.products;
-create policy "products: signed-in users read" on public.products
-  for select to authenticated using (true);
 drop policy if exists "products: admins add" on public.products;
-create policy "products: admins add" on public.products
-  for insert to authenticated with check ((select public.is_admin()));
 drop policy if exists "products: admins edit" on public.products;
-create policy "products: admins edit" on public.products
-  for update to authenticated
-  using ((select public.is_admin())) with check ((select public.is_admin()));
-
 drop policy if exists "orders: signed-in users read" on public.order_items;
-create policy "orders: signed-in users read" on public.order_items
-  for select to authenticated using (true);
 drop policy if exists "orders: signed-in users add" on public.order_items;
-create policy "orders: signed-in users add" on public.order_items
-  for insert to authenticated with check (true);
 drop policy if exists "orders: signed-in users edit" on public.order_items;
-create policy "orders: signed-in users edit" on public.order_items
-  for update to authenticated using (true) with check (true);
+
+-- (Re)create every rule. Pattern: "<table>: <who> <what>".
+do $$
+declare
+  p record;
+begin
+  for p in select * from (values
+    -- table,              name,                                cmd,      using / with check
+    ('profiles',          'profiles: own row, admins all',      'select', '(id = (select auth.uid()) or (select public.is_admin()))'),
+    ('stores',            'stores: any role reads',             'select', '((select public.app_role()) is not null)'),
+    ('stores',            'stores: admins add',                 'insert', '(select public.is_admin())'),
+    ('stores',            'stores: admins edit',                'update', '(select public.is_admin())'),
+    ('products',          'products: any role reads',           'select', '((select public.app_role()) is not null)'),
+    ('products',          'products: admins add',               'insert', '(select public.is_admin())'),
+    ('products',          'products: admins edit',              'update', '(select public.is_admin())'),
+    ('order_items',       'orders: any role reads',             'select', '((select public.app_role()) is not null)'),
+    ('order_items',       'orders: admins add',                 'insert', '(select public.is_admin())'),
+    ('order_items',       'orders: admins edit',                'update', '(select public.is_admin())'),
+    ('prices',            'prices: admins read',                'select', '(select public.is_admin())'),
+    ('prices',            'prices: admins add',                 'insert', '(select public.is_admin())'),
+    ('prices',            'prices: admins edit',                'update', '(select public.is_admin())'),
+    ('prices',            'prices: admins remove',              'delete', '(select public.is_admin())'),
+    ('order_item_prices', 'line prices: admins read',           'select', '(select public.is_admin())'),
+    ('deliveries',        'payments: admins read',              'select', '(select public.is_admin())'),
+    ('deliveries',        'payments: admins add',               'insert', '(select public.is_admin())'),
+    ('deliveries',        'payments: admins edit',              'update', '(select public.is_admin())'),
+    ('production',        'production: admins+bakers read',     'select', '((select public.app_role()) in (''admin'', ''baker''))'),
+    ('production',        'production: admins+bakers add',      'insert', '((select public.app_role()) in (''admin'', ''baker''))'),
+    ('production',        'production: admins+bakers edit',     'update', '((select public.app_role()) in (''admin'', ''baker''))')
+  ) as t(tbl, name, cmd, expr)
+  loop
+    execute format('drop policy if exists %I on public.%I', p.name, p.tbl);
+    execute format('create policy %I on public.%I for %s to authenticated %s', p.name, p.tbl, p.cmd,
+      case p.cmd
+        when 'insert' then format('with check (%s)', p.expr)
+        when 'update' then format('using (%s) with check (%s)', p.expr, p.expr)
+        else format('using (%s)', p.expr)
+      end);
+  end loop;
+end $$;
 
 
--- ── 4. REORDER (one atomic call instead of 22 separate updates) ────────────
--- Runs with the caller's rights, so the "admins edit" policy still applies.
+-- ── 5. REORDER (one atomic call instead of 22 separate updates) ────────────
+-- Runs with the caller's rights, so the "admins edit" rule still applies.
 create or replace function public.reorder_stores(store_ids bigint[])
 returns void
 language plpgsql
@@ -198,25 +384,22 @@ revoke execute on function public.reorder_stores(bigint[]) from public, anon;
 grant  execute on function public.reorder_stores(bigint[]) to authenticated;
 
 
--- ── 5. REALTIME (live updates between devices) ─────────────────────────────
+-- ── 6. REALTIME (live updates between devices; each user only receives
+--       changes to rows the rules above let them read) ──────────────────────
 do $$
+declare t text;
 begin
-  alter publication supabase_realtime add table public.stores;
-exception when duplicate_object then null;
-end $$;
-do $$
-begin
-  alter publication supabase_realtime add table public.products;
-exception when duplicate_object then null;
-end $$;
-do $$
-begin
-  alter publication supabase_realtime add table public.order_items;
-exception when duplicate_object then null;
+  foreach t in array array['stores', 'products', 'order_items', 'prices',
+                           'order_item_prices', 'deliveries', 'production'] loop
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then null;
+    end;
+  end loop;
 end $$;
 
 
--- ── 6. STARTING DATA (skipped if already present) ──────────────────────────
+-- ── 7. STARTING DATA (skipped if already present) ──────────────────────────
 insert into public.stores (id, name, area, address, seq) values
   ( 1, 'Vatan',                    'Bella Vista',    '50 Norwest Blvd', 1),
   ( 2, 'Honest',                   'Bella Vista',    '123/14 Lexington Dr', 2),

@@ -81,7 +81,6 @@
   .user-btn[data-sync="saving"]::after { background: #f5a623; }
   .user-btn[data-sync="error"]::after  { background: var(--red); }
 
-  body:not(.is-admin) .admin-only { display: none !important; }
 
   /* ── TABS ── */
   .tabs {
@@ -505,6 +504,70 @@
   }
   .legacy-actions .primary { background: var(--rust); color: #fff; border-color: var(--rust); }
 
+  /* ── MONEY, PAYMENTS, PRODUCTION ── */
+  .store-amount { font-weight: 600; color: var(--green); }
+  .stop-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+  .stop-amount { font-size: 13px; font-weight: 700; color: var(--green); }
+  .pay-chips { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .pay-chip {
+    padding: 5px 10px; border-radius: 20px; cursor: pointer;
+    border: 1.5px solid var(--border); background: #fff; color: var(--muted);
+    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+  }
+  .pay-chip.on[data-mode="cash"]   { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  .pay-chip.on[data-mode="online"] { background: #E8F0FE; border-color: #3367D6; color: #3367D6; }
+  .pay-chip.on[data-mode="unpaid"] { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+  .pay-badge {
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px;
+    border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+  }
+  .breakdown-qtys { flex-wrap: wrap; justify-content: flex-end; }
+  .money-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 16px 16px; }
+  .money-card {
+    background: var(--warm-white); border: 1.5px solid var(--border);
+    border-radius: 16px; padding: 14px 16px;
+  }
+  .money-card.full { grid-column: 1 / -1; background: var(--green-bg); border-color: #b7dcc4; }
+  .money-card.warn { grid-column: 1 / -1; background: #FFF6E5; border-color: #F3D9A4; font-size: 13px; }
+  .money-val { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--brown); }
+  .money-card.full .money-val { font-size: 32px; color: var(--green); }
+  .money-lbl {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;
+  }
+  .prod-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+  }
+  .prod-row:last-child { border-bottom: none; }
+  .prod-name { flex: 1; font-size: 14px; font-weight: 500; color: var(--brown); }
+  .prod-need { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .prod-input {
+    width: 72px; height: 40px; border: 1.5px solid var(--border); border-radius: 10px;
+    text-align: center; background: #fff; outline: none;
+    font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 700; color: var(--brown);
+  }
+  .prod-input:focus { border-color: var(--brown); }
+  .prod-diff { min-width: 40px; text-align: right; font-size: 13px; font-weight: 700; color: var(--muted); }
+  .prod-diff.short { color: var(--red); }
+  .prod-diff.extra { color: var(--green); }
+  .qty-readonly {
+    min-width: 44px; text-align: right;
+    font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--brown);
+  }
+  .price-rows { display: flex; flex-direction: column; gap: 8px; }
+  .price-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--brown); }
+  .price-row span { flex: 1; }
+  .price-row input {
+    width: 110px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+    font-family: 'DM Sans', sans-serif; font-size: 16px; color: var(--brown); background: #fff; outline: none;
+  }
+  .modal-label {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 5px;
+  }
+  #productModal > div, #storeModal > div { max-height: 92vh; overflow-y: auto; }
+
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
@@ -533,11 +596,14 @@
   <form class="login-card" onsubmit="event.preventDefault(); signIn();">
     <img data-logo alt="GJ 06" class="login-logo">
     <div class="login-title">Sign in</div>
-    <input id="loginEmail" type="email" autocomplete="username" placeholder="Email" aria-label="Email" required>
-    <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+    <div id="loginFields" style="display:contents">
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="Email" aria-label="Email" required>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+    </div>
     <div id="loginError" class="login-error" hidden></div>
     <button id="loginBtn" type="submit">Sign in</button>
-    <div class="login-note">No account? Ask the owner to create one for you.</div>
+    <button id="noRoleSignOut" type="button" onclick="signOutNow()" hidden>Sign out</button>
+    <div class="login-note" id="loginNote">No account? Ask the owner to create one for you.</div>
   </form>
 </div>
 
@@ -584,19 +650,19 @@
     </div>
   </div>
   <div class="tabs">
-    <div class="tab active" onclick="showPage('orders')" id="tab-orders">
+    <div class="tab active" onclick="showPage('orders')" id="tab-orders" data-roles="admin baker">
       <span class="tab-icon">📋</span>Orders
     </div>
-    <div class="tab" onclick="showPage('route')" id="tab-route">
+    <div class="tab" onclick="showPage('route')" id="tab-route" data-roles="admin baker driver">
       <span class="tab-icon">🚚</span>Route
     </div>
-    <div class="tab" onclick="showPage('totals')" id="tab-totals">
+    <div class="tab" onclick="showPage('totals')" id="tab-totals" data-roles="admin baker driver">
       <span class="tab-icon">📦</span>Totals
     </div>
-    <div class="tab admin-only" onclick="showPage('products')" id="tab-products">
+    <div class="tab" onclick="showPage('products')" id="tab-products" data-roles="admin">
       <span class="tab-icon">🧁</span>Products
     </div>
-    <div class="tab admin-only" onclick="showPage('stores')" id="tab-stores">
+    <div class="tab" onclick="showPage('stores')" id="tab-stores" data-roles="admin">
       <span class="tab-icon">🏪</span>Stores
     </div>
   </div>
@@ -682,12 +748,28 @@
     </div>
   </div>
 
+  <div id="moneySection" data-roles="admin driver">
+    <div class="section-header">
+      <span class="section-title">Sales</span>
+      <span class="section-hint">inc. GST</span>
+    </div>
+    <div class="money-grid" id="moneyGrid"></div>
+  </div>
+
+  <div id="productionSection" data-roles="admin baker">
+    <div class="section-header">
+      <span class="section-title">Baked</span>
+      <span class="section-hint">Enter what was made</span>
+    </div>
+    <div class="store-breakdown" id="productionList"></div>
+  </div>
+
   <div class="store-breakdown">
     <div class="breakdown-title">Store Breakdown</div>
     <div id="breakdownList"></div>
   </div>
 
-  <div class="reset-banner admin-only">
+  <div class="reset-banner" data-roles="admin">
     <div class="reset-text">⚠️ Clear every quantity for this date, for everyone?</div>
     <button class="reset-btn" onclick="resetOrders()">Clear date</button>
   </div>
@@ -805,6 +887,14 @@
           color:var(--brown);background:#fff;outline:none;
         ">
       </div>
+      <div>
+        <label class="modal-label" for="pPrice">Price inc. GST ($)</label>
+        <input id="pPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="e.g. 12.50" style="
+          width:100%;padding:12px 14px;border:1.5px solid var(--border);
+          border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
+          color:var(--brown);background:#fff;outline:none;
+        ">
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:20px">
@@ -880,6 +970,10 @@
           border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
           color:var(--brown);background:#fff;outline:none;
         ">
+      </div>
+      <div>
+        <label class="modal-label">Special prices inc. GST (blank = normal price)</label>
+        <div class="price-rows" id="storePrices"></div>
       </div>
     </div>
 
@@ -1026,6 +1120,56 @@ function defaultDeliveryDate() {
 let orders = {};  // { storeId: { [productId]: qty } } for currentDate
 let currentDate = defaultDeliveryDate();
 
+// Money: the database only returns these to admins
+let PRICES = { normal: {}, special: {} };  // normal[pid], special[storeId][pid] (inc. GST)
+let linePrices = {};  // "storeId|pid" -> unit price saved with that order line (currentDate)
+let payments = {};    // storeId -> 'cash' | 'online' | 'unpaid' (currentDate)
+// Drivers only get a total per stop, worked out by the server
+let stopAmounts = {}; // storeId -> amount (currentDate)
+// Admin + baker
+let production = {};  // pid -> qty baked (currentDate)
+
+function clearDayData() {
+  orders = {};
+  linePrices = {};
+  payments = {};
+  stopAmounts = {};
+  production = {};
+}
+
+const PAY_MODES = { cash: '💵 Cash', online: '📱 Online', unpaid: '🕒 Unpaid' };
+const money = n => (Number(n) || 0).toLocaleString('en-AU', { style: 'currency', currency: 'AUD' });
+
+// What each role sees and may do (the database enforces the same rules)
+const ROLE_TABS = {
+  admin:  ['orders', 'route', 'totals', 'products', 'stores'],
+  baker:  ['totals', 'orders', 'route'],  // first = start page
+  driver: ['route', 'totals'],
+};
+const validRole = r => (typeof r === 'string' && Object.hasOwn(ROLE_TABS, r) ? r : null);
+const can = {
+  editOrders: () => profile.role === 'admin',
+  seeMoney:   () => profile.role === 'admin',
+  seeAmounts: () => profile.role === 'admin' || profile.role === 'driver',
+  production: () => profile.role === 'admin' || profile.role === 'baker',
+};
+
+function effectivePrice(storeId, pid) {
+  return PRICES.special[storeId]?.[pid] ?? PRICES.normal[pid] ?? null;
+}
+
+// The price saved with the line if there is one, else today's price (new lines)
+function unitPrice(storeId, pid) {
+  const k = `${storeId}|${pid}`;
+  return k in linePrices ? linePrices[k] : effectivePrice(storeId, pid);
+}
+
+function storeAmount(storeId) {
+  if (!can.seeMoney()) return stopAmounts[storeId] || 0;
+  return Object.entries(orders[storeId] || {})
+    .reduce((sum, [pid, q]) => sum + sanitizeQty(q) * (Number(unitPrice(storeId, pid)) || 0), 0);
+}
+
 function sanitizeQty(v) {
   return Math.max(0, parseInt(v, 10) || 0);
 }
@@ -1053,7 +1197,7 @@ function applyQty(storeId, productId, qty) {
 
 function setOrderQty(storeId, productId, qty) {
   const pid = String(productId || '');
-  if (!getProduct(pid) || !currentUser) return;
+  if (!getProduct(pid) || !currentUser || !can.editOrders()) return;
   applyQty(storeId, pid, qty);
   queueSave(storeId, pid);
   saveCache();
@@ -1081,7 +1225,7 @@ function setDeliveryDate(iso) {
   }
   flushAllSaves();
   currentDate = iso;
-  orders = {};
+  clearDayData();
   updateDateUI();
   renderOrders();
   if (currentUser) {
@@ -1124,6 +1268,7 @@ function ensureProductCards() {
 // ── BUILD ORDERS PAGE ────────────────────────────────────────────────────────
 function buildOrdersPage() {
   const list = document.getElementById('storeList');
+  const editable = can.editOrders();
   const keepOpen = expandedCard;
   list.innerHTML = '';
   expandedCard = null;
@@ -1139,7 +1284,8 @@ function buildOrdersPage() {
         <div class="store-seq">${store.seq}</div>
         <div class="store-info">
           <div class="store-name">${safeText(store.name)}</div>
-          <div class="store-area">${safeText(store.area)}</div>
+          <div class="store-area">${safeText(store.area)}${can.seeMoney()
+            ? ` · <span class="store-amount" id="amount-${store.id}">${money(storeAmount(store.id))}</span>` : ''}</div>
         </div>
         <div class="store-total-badge" id="badge-${store.id}">${total}</div>
       </div>
@@ -1147,14 +1293,14 @@ function buildOrdersPage() {
         ${PRODUCTS.map(p => `
           <div class="input-row">
             <div class="input-label">${safeText(p.icon || '📦')} ${safeText(p.name)}</div>
-            <div class="qty-control">
+            ${editable ? `<div class="qty-control">
               <button class="qty-btn" onclick="changeQty(${store.id},'${safeText(p.id)}',-1)">−</button>
               <input class="qty-input" type="number" inputmode="numeric" id="${safeText(p.id)}-${store.id}"
                 value="${o[p.id] || 0}" min="0"
                 onchange="setOrderQty(${store.id},'${safeText(p.id)}',this.value)"
                 onfocus="this.select()">
               <button class="qty-btn" onclick="changeQty(${store.id},'${safeText(p.id)}',1)">+</button>
-            </div>
+            </div>` : `<div class="qty-readonly" id="${safeText(p.id)}-${store.id}">${o[p.id] || 0}</div>`}
           </div>
         `).join('')}
         <div class="address-line">📍 ${safeText(store.address)}</div>
@@ -1246,6 +1392,8 @@ function updateCardState(id) {
     badge.textContent = total;
     card.classList.toggle('has-order', total > 0);
   }
+  const amount = document.getElementById(`amount-${id}`);
+  if (amount) amount.textContent = money(storeAmount(id));
   updateRoutePage();
   updateTotalsPage();
 }
@@ -1301,10 +1449,37 @@ function updateRoutePage() {
           <div class="stop-name">${safeText(store.name)}</div>
           <div class="stop-addr">${safeText(store.address)}</div>
           <div class="stop-pills">${pills.join('')}</div>
+          ${can.seeMoney() ? paymentChips(store.id) : ''}
         </div>
-        <div class="stop-total">${orderTotal(o)}</div>
+        <div class="stop-side">
+          <div class="stop-total">${orderTotal(o)}</div>
+          ${can.seeAmounts() ? `<div class="stop-amount">${money(storeAmount(store.id))}</div>` : ''}
+        </div>
       </div>`;
   }).join('');
+}
+
+// Admin: how this stop paid. Tapping the selected mode again clears it.
+function paymentChips(storeId) {
+  return `<div class="pay-chips">${Object.entries(PAY_MODES).map(([mode, label]) =>
+    `<button class="pay-chip${payments[storeId] === mode ? ' on' : ''}" data-mode="${mode}"
+      onclick="setPayment(${storeId},'${mode}')">${label}</button>`).join('')}</div>`;
+}
+
+async function setPayment(storeId, mode) {
+  if (!can.seeMoney()) return;
+  const date = currentDate;
+  const prev = payments[storeId];
+  const next = prev === mode ? null : mode;
+  const apply = m => { if (m) payments[storeId] = m; else delete payments[storeId]; updateRoutePage(); updateTotalsPage(); };
+  apply(next);
+  const k = `deliveries|${date}|${storeId}`;
+  markLocalWrite(k, 1);
+  const res = await dbCall(sb.from('deliveries').upsert({ delivery_date: date, store_id: storeId, payment_mode: next }));
+  markLocalWrite(k, -1);
+  if (date !== currentDate) return;
+  if (!res.ok) { apply(prev); return; }
+  saveCache();
 }
 
 function openMaps() {
@@ -1596,6 +1771,8 @@ function updateTotalsPage() {
   });
   document.getElementById('tot-total').textContent = grand;
   document.getElementById('tot-stores').textContent = stops.length;
+  renderMoney(stops);
+  renderProduction(sums);
 
   const bl = document.getElementById('breakdownList');
   if (!stops.length) {
@@ -1612,9 +1789,86 @@ function updateTotalsPage() {
         ${safeText(s.name)}
         <div class="breakdown-addr">${safeText(s.area)}</div>
       </div>
-      <div class="breakdown-qtys">${pills.join('')}</div>
+      <div class="breakdown-qtys">${pills.join('')}${can.seeAmounts()
+        ? `<span class="breakdown-qty">${money(storeAmount(s.id))}</span>` : ''}${can.seeMoney() && payments[s.id]
+        ? `<span class="pay-badge">${PAY_MODES[payments[s.id]]}</span>` : ''}</div>
     </div>`;
   }).join('');
+}
+
+const moneyCard = (label, amount, cls = '') =>
+  `<div class="money-card ${cls}"><div class="money-val">${money(amount)}</div><div class="money-lbl">${label}</div></div>`;
+
+function renderMoney(stops) {
+  const grid = document.getElementById('moneyGrid');
+  if (!can.seeAmounts()) { grid.innerHTML = ''; return; }
+  const total = stops.reduce((sum, s) => sum + storeAmount(s.id), 0);
+  if (!can.seeMoney()) {
+    grid.innerHTML = moneyCard('Total amount', total, 'full');
+    return;
+  }
+  const by = { cash: 0, online: 0, unpaid: 0, none: 0 };
+  stops.forEach(s => by[payments[s.id] || 'none'] += storeAmount(s.id));
+  const unpriced = stops.reduce((n, s) => n + Object.entries(orders[s.id] || {})
+    .filter(([pid, q]) => sanitizeQty(q) > 0 && unitPrice(s.id, pid) == null).length, 0);
+  grid.innerHTML = moneyCard('Total sales', total, 'full')
+    + moneyCard(PAY_MODES.cash, by.cash) + moneyCard(PAY_MODES.online, by.online)
+    + moneyCard(PAY_MODES.unpaid, by.unpaid) + moneyCard('Not recorded', by.none)
+    + (unpriced ? `<div class="money-card warn">⚠️ ${unpriced} order line${unpriced > 1 ? 's have' : ' has'} no price,
+        counted as $0. Set prices in Products.</div>` : '');
+}
+
+// Rows are built once per product list; values update in place so typing isn't interrupted
+let _productionSig = '';
+function renderProduction(needed) {
+  const list = document.getElementById('productionList');
+  if (!can.production()) { list.innerHTML = ''; _productionSig = ''; return; }
+  const sig = PRODUCTS.map(p => `${p.id}:${p.name}:${p.icon}`).join('|');
+  if (sig !== _productionSig) {
+    _productionSig = sig;
+    list.innerHTML = PRODUCTS.map(p => `
+      <div class="prod-row">
+        <div class="prod-name">${safeText(p.icon)} ${safeText(p.name)}
+          <div class="prod-need" id="need-${p.id}"></div>
+        </div>
+        <input class="prod-input" type="number" inputmode="numeric" min="0" id="baked-${p.id}"
+          aria-label="Baked ${safeText(p.name)}" placeholder="0"
+          onchange="setBaked('${safeText(p.id)}', this.value)" onfocus="this.select()">
+        <div class="prod-diff" id="diff-${p.id}"></div>
+      </div>`).join('');
+  }
+  PRODUCTS.forEach(p => {
+    const need = needed[p.id] || 0;
+    const baked = production[p.id];
+    document.getElementById(`need-${p.id}`).textContent = `Needed ${need}`;
+    const input = document.getElementById(`baked-${p.id}`);
+    if (input !== document.activeElement) input.value = baked ?? '';
+    const diff = baked == null ? null : baked - need;
+    const el = document.getElementById(`diff-${p.id}`);
+    el.textContent = diff == null ? '' : diff === 0 ? '✓' : diff > 0 ? `+${diff}` : `${diff}`;
+    el.className = 'prod-diff' + (diff < 0 ? ' short' : diff > 0 ? ' extra' : '');
+  });
+}
+
+async function setBaked(pid, value) {
+  if (!can.production() || !getProduct(pid)) return;
+  const date = currentDate;
+  const prev = production[pid];
+  production[pid] = sanitizeQty(value);
+  updateTotalsPage();
+  const k = `production|${date}|${pid}`;
+  markLocalWrite(k, 1);
+  const res = await dbCall(sb.from('production').upsert({
+    production_date: date, product_id: Number(pid), qty_baked: production[pid],
+  }));
+  markLocalWrite(k, -1);
+  if (date !== currentDate) return;
+  if (!res.ok) {
+    if (prev == null) delete production[pid]; else production[pid] = prev;
+    updateTotalsPage();
+    return;
+  }
+  saveCache();
 }
 
 // ── NAVIGATION ───────────────────────────────────────────────────────────────
@@ -1679,7 +1933,8 @@ function buildProductsPage() {
       ">${safeText(p.icon || '📦')}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:15px;font-weight:600;color:var(--brown)">${safeText(p.name)}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px">ID: ${safeText(p.id)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${PRICES.normal[p.id] != null
+          ? `${money(PRICES.normal[p.id])} inc. GST` : '⚠️ No price set'}</div>
       </div>
       <div style="font-size:20px;color:var(--muted)">›</div>
     `;
@@ -1707,6 +1962,7 @@ function openProductModal(product) {
   document.getElementById('editProductId').value = product ? product.id : '';
   document.getElementById('pName').value = product ? product.name : '';
   document.getElementById('pIcon').value = product ? (product.icon || '') : '';
+  document.getElementById('pPrice').value = product ? (PRICES.normal[product.id] ?? '') : '';
   document.getElementById('productModalTitle').textContent = product ? 'Edit Product' : 'Add Product';
   const delBtn = document.getElementById('deleteProductBtn');
   delBtn.style.display = product ? 'block' : 'none';
@@ -1727,20 +1983,55 @@ async function saveProduct() {
   const name = String(document.getElementById('pName').value || '').trim();
   const icon = String(document.getElementById('pIcon').value || '').trim();
   if (!name) { showToast('Enter a product name'); return; }
+  const price = readPrice(document.getElementById('pPrice'));
+  if (price === undefined) { showToast('Enter a valid price, e.g. 12.50'); return; }
   if (_busy) return;
 
   _busy = true;
-  const fields = { name, icon: icon || '📦' };
-  const res = editId
-    ? await dbCall(sb.from('products').update(fields).eq('id', Number(editId)).select('id'), true)
-    : await dbCall(sb.from('products').insert({
-        ...fields, sort: Math.max(0, ...PRODUCTS.map(p => p.sort || 0)) + 1,
-      }));
-  _busy = false;
-  if (!res.ok) return;
-  closeProductModal();
-  await refreshCatalog();
-  showToast(editId ? 'Product updated' : 'Product added');
+  try {
+    const fields = { name, icon: icon || '📦' };
+    const res = editId
+      ? await dbCall(sb.from('products').update(fields).eq('id', Number(editId)).select('id'), true)
+      : await dbCall(sb.from('products').insert({
+          ...fields, sort: Math.max(0, ...PRODUCTS.map(p => p.sort || 0)) + 1,
+        }).select('id').single());
+    if (!res.ok) return;
+    await savePrice(editId ? Number(editId) : res.data.id, null, price);
+    closeProductModal();
+    showToast(editId ? 'Product updated' : 'Product added');
+    await Promise.all([refreshCatalog(), refreshPrices()]);
+  } finally {
+    _busy = false;
+  }
+}
+
+// A number input reports '' for text it can't read (e.g. "12.5.3"),
+// which must be rejected, not treated as "no price"
+function readPrice(input) {
+  if (input.validity?.badInput) return undefined;
+  return parsePrice(input.value);
+}
+
+// '' -> null (no price), valid number -> rounded to cents, otherwise undefined
+function parsePrice(text) {
+  const t = String(text ?? '').trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 && n < 100000 ? Math.round(n * 100) / 100 : undefined;
+}
+
+// Set a normal price (storeId null) or a store's special price; null removes it
+async function savePrice(productId, storeId, price) {
+  const current = storeId == null ? PRICES.normal[productId] : PRICES.special[storeId]?.[productId];
+  if ((current ?? null) === price) return true;
+  if (price == null) {
+    let q = sb.from('prices').delete().eq('product_id', productId);
+    q = storeId == null ? q.is('store_id', null) : q.eq('store_id', storeId);
+    return (await dbCall(q)).ok;
+  }
+  return (await dbCall(sb.from('prices').upsert(
+    { product_id: productId, store_id: storeId, price },
+    { onConflict: 'product_id,store_id' }))).ok;
 }
 
 async function deleteProduct() {
@@ -1972,6 +2263,7 @@ function openAddStore() {
   document.getElementById('fAddress').value = '';
   document.getElementById('fSeq').value = sortedStores().length + 1;
   document.getElementById('deleteStoreBtn').style.display = 'none';
+  renderStorePriceInputs(null);
   const modal = document.getElementById('storeModal');
   modal.style.display = 'flex';
   setTimeout(() => document.getElementById('fName').focus(), 300);
@@ -1987,7 +2279,18 @@ function openEditStore(id) {
   document.getElementById('fAddress').value = store.address || '';
   document.getElementById('fSeq').value = store.seq;
   document.getElementById('deleteStoreBtn').style.display = 'block';
+  renderStorePriceInputs(id);
   document.getElementById('storeModal').style.display = 'flex';
+}
+
+function renderStorePriceInputs(storeId) {
+  document.getElementById('storePrices').innerHTML = PRODUCTS.map(p => {
+    const normal = PRICES.normal[p.id];
+    const special = storeId ? PRICES.special[storeId]?.[p.id] : undefined;
+    return `<label class="price-row"><span>${safeText(p.icon)} ${safeText(p.name)}</span>
+      <input type="number" inputmode="decimal" step="0.01" min="0" id="sp-${safeText(p.id)}"
+        value="${special ?? ''}" placeholder="${normal != null ? normal.toFixed(2) : 'no price'}"></label>`;
+  }).join('');
 }
 
 function closeStoreModal() {
@@ -1997,6 +2300,12 @@ function closeStoreModal() {
 async function saveStore() {
   const name = document.getElementById('fName').value.trim();
   if (!name) { showToast('Store name is required'); return; }
+  const specials = {};
+  for (const p of PRODUCTS) {
+    const input = document.getElementById(`sp-${p.id}`);
+    specials[p.id] = input ? readPrice(input) : null;
+    if (specials[p.id] === undefined) { showToast(`Enter a valid price for ${p.name}`); return; }
+  }
   const area    = document.getElementById('fArea').value.trim();
   const address = document.getElementById('fAddress').value.trim();
   const seqIn   = parseInt(document.getElementById('fSeq').value, 10);
@@ -2022,9 +2331,10 @@ async function saveStore() {
     if (order.join() !== current.join()) {
       await dbCall(sb.rpc('reorder_stores', { store_ids: order }));
     }
+    for (const p of PRODUCTS) await savePrice(Number(p.id), id, specials[p.id]);
     closeStoreModal();
     showToast(editId ? 'Store updated ✓' : 'Store added ✓');
-    await refreshCatalog();
+    await Promise.all([refreshCatalog(), refreshPrices()]);
   } finally {
     _busy = false;
   }
@@ -2060,7 +2370,7 @@ document.getElementById('storeModal').addEventListener('click', function(e) {
 // ── SUPABASE: SESSION ────────────────────────────────────────────────────────
 let sb = null;            // Supabase client
 let currentUser = null;
-let profile = { full_name: '', role: 'staff' };
+let profile = { full_name: '', role: null };  // role: 'admin' | 'baker' | 'driver' | null
 let dataLoaded = false;   // true once fresh data has arrived from the server
 let channel = null;       // realtime subscription for the current date
 const isAdmin = () => profile.role === 'admin';
@@ -2090,6 +2400,10 @@ async function dbCall(request, expectRows = false) {
 
 function showLogin(message = '') {
   document.getElementById('loginScreen').hidden = false;
+  document.getElementById('loginFields').hidden = false;
+  document.getElementById('loginBtn').hidden = false;
+  document.getElementById('loginNote').hidden = false;
+  document.getElementById('noRoleSignOut').hidden = true;
   const err = document.getElementById('loginError');
   err.textContent = message;
   err.hidden = !message;
@@ -2137,10 +2451,11 @@ function endSession() {
   if (reorderDraft) exitReorder();
   currentUser = null;
   dataLoaded = false;
-  profile = { full_name: '', role: 'staff' };
+  profile = { full_name: '', role: null };
   STORES = [];
   PRODUCTS = [];
-  orders = {};
+  PRICES = { normal: {}, special: {} };
+  clearDayData();
   store.del(CACHE_KEY);  // don't leave business data on a signed-out device
   applyRoleUI();
   renderAll();
@@ -2148,23 +2463,44 @@ function endSession() {
   showLogin();
 }
 
+// Signed in, but the owner hasn't given this account a role yet
+function showNoRole() {
+  showLogin(`Signed in as ${currentUser.email}, but this account has no role yet. Ask the owner to set it, then reload.`);
+  document.getElementById('loginFields').hidden = true;
+  document.getElementById('loginBtn').hidden = true;
+  document.getElementById('loginNote').hidden = true;
+  document.getElementById('noRoleSignOut').hidden = false;
+}
+
 async function userMenu() {
   if (!currentUser) return;
-  const who = `${profile.full_name || currentUser.email} (${profile.role})`;
+  const who = `${profile.full_name || currentUser.email} (${profile.role || 'no role'})`;
   if (!confirm(`Signed in as ${who}.\n\nSign out?`)) return;
+  await signOutNow();
+}
+
+async function signOutNow() {
   await flushAllSaves();
   await sb.auth.signOut();
   endSession();
 }
 
 function applyRoleUI() {
-  document.body.classList.toggle('is-admin', isAdmin());
+  const role = currentUser ? profile.role : null;
+  document.body.dataset.role = role || '';
+  document.querySelectorAll('[data-roles]').forEach(el => {
+    el.hidden = !role || !el.dataset.roles.split(' ').includes(role);
+  });
   const btn = document.getElementById('userBtn');
   const name = profile.full_name || currentUser?.email || '';
   btn.textContent = name.trim().charAt(0).toUpperCase();
-  btn.title = currentUser ? `${name} · ${profile.role}` : '';
-  const active = document.querySelector('.page.active')?.id;
-  if (!isAdmin() && (active === 'page-products' || active === 'page-stores')) showPage('orders');
+  btn.title = currentUser ? `${name} · ${role || 'no role'}` : '';
+  document.querySelector('#page-orders .section-hint').textContent =
+    can.editOrders() ? 'Tap store to enter qty' : 'Tap store to see qty';
+  // Stay on a page this role can use (e.g. a driver starts on Route)
+  const tabs = ROLE_TABS[role];
+  const active = document.querySelector('.page.active')?.id.replace('page-', '');
+  if (tabs && !tabs.includes(active)) showPage(tabs[0]);
   checkLegacyData();
 }
 
@@ -2180,15 +2516,38 @@ async function loadCatalog() {
   PRODUCTS = pr.data.map(productFromRow).filter(Boolean);
 }
 
+async function loadPrices() {
+  const { data, error } = await sb.from('prices').select('product_id,store_id,price');
+  if (error) throw error;
+  PRICES = { normal: {}, special: {} };
+  data.forEach(r => {
+    const pid = String(r.product_id);
+    if (r.store_id == null) PRICES.normal[pid] = Number(r.price);
+    else (PRICES.special[r.store_id] ||= {})[pid] = Number(r.price);
+  });
+}
+
 // Returns false if the date changed while loading (result discarded)
+// Each role gets only what the database rules allow (others come back empty)
 async function loadDay() {
   const date = currentDate;
-  const { data, error } = await sb.from('order_items')
-    .select('store_id,product_id,qty').eq('delivery_date', date);
-  if (error) throw error;
+  const results = await Promise.all([
+    sb.from('order_items').select('store_id,product_id,qty').eq('delivery_date', date),
+    sb.from('order_item_prices').select('store_id,product_id,unit_price').eq('delivery_date', date),
+    sb.from('deliveries').select('store_id,payment_mode').eq('delivery_date', date),
+    sb.from('production').select('product_id,qty_baked').eq('production_date', date),
+    sb.rpc('stop_amounts', { p_date: date }),
+  ]);
+  const failed = results.find(r => r.error);
+  if (failed) throw failed.error;
   if (date !== currentDate) return false;
-  orders = {};
-  data.forEach(r => applyQty(r.store_id, String(r.product_id), r.qty));
+  const [items, lines, pays, baked, amounts] = results.map(r => r.data || []);
+  clearDayData();
+  items.forEach(r => applyQty(r.store_id, String(r.product_id), r.qty));
+  lines.forEach(r => linePrices[`${r.store_id}|${r.product_id}`] = r.unit_price == null ? null : Number(r.unit_price));
+  pays.forEach(r => { if (r.payment_mode) payments[r.store_id] = r.payment_mode; });
+  baked.forEach(r => production[String(r.product_id)] = r.qty_baked);
+  amounts.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
   // Edits not yet saved stay on screen
   pending.forEach(p => { if (p.date === date) applyQty(p.storeId, p.productId, p.qty); });
   return true;
@@ -2200,15 +2559,17 @@ async function loadProfile() {
   if (error) throw error;
   profile = {
     full_name: data?.full_name || currentUser.email,
-    role: data?.role === 'admin' ? 'admin' : 'staff',
+    role: validRole(data?.role),
   };
 }
 
 async function refreshAll() {
   if (!currentUser) return;
   try {
-    await Promise.all([loadCatalog(), loadDay(), loadProfile()]);
+    await Promise.all([loadCatalog(), loadDay(), loadProfile(), loadPrices()]);
     dataLoaded = true;
+    if (!profile.role) { showNoRole(); return; }
+    document.getElementById('loginScreen').hidden = true;
     applyRoleUI();
     renderAll();
     saveCache();
@@ -2224,6 +2585,16 @@ async function refreshCatalog() {
     saveCache();
   } catch (error) {
     showToast('⚠️ Could not load stores: ' + friendlyError(error));
+  }
+}
+
+async function refreshPrices() {
+  try {
+    await Promise.all([loadPrices(), loadDay()]);  // line prices are updated by the database
+    renderAll();
+    saveCache();
+  } catch (error) {
+    showToast('⚠️ Could not load prices: ' + friendlyError(error));
   }
 }
 
@@ -2254,8 +2625,8 @@ function renderAll() {
 function saveCache() {
   if (!currentUser || !dataLoaded) return;
   store.set(CACHE_KEY, JSON.stringify({
-    userId: currentUser.id, profile, stores: STORES, products: PRODUCTS,
-    date: currentDate, orders,
+    userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES,
+    date: currentDate, orders, linePrices, payments, stopAmounts, production,
   }));
 }
 
@@ -2263,13 +2634,18 @@ function loadCache() {
   try {
     const c = JSON.parse(store.get(CACHE_KEY));
     if (!c || c.userId !== currentUser.id) return;
-    profile = { full_name: String(c.profile?.full_name || ''), role: c.profile?.role === 'admin' ? 'admin' : 'staff' };
+    profile = { full_name: String(c.profile?.full_name || ''), role: validRole(c.profile?.role) };
     STORES = (c.stores || []).map(storeFromRow).filter(Boolean);
     PRODUCTS = (c.products || []).map(productFromRow).filter(Boolean);
-    orders = {};
+    PRICES = { normal: { ...c.prices?.normal }, special: { ...c.prices?.special } };
+    clearDayData();
     if (c.date === currentDate && c.orders && typeof c.orders === 'object') {
       Object.entries(c.orders).forEach(([sid, o]) =>
         Object.entries(o || {}).forEach(([pid, q]) => applyQty(parseInt(sid, 10), pid, q)));
+      linePrices = { ...c.linePrices };
+      payments = { ...c.payments };
+      stopAmounts = { ...c.stopAmounts };
+      production = { ...c.production };
     }
   } catch (_) {}
 }
@@ -2344,12 +2720,24 @@ function subscribeRealtime() {
       onRemoteOrder)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'stores' }, scheduleCatalogRefresh)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, scheduleCatalogRefresh)
+    // Each user only receives changes to rows they're allowed to read
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'order_item_prices', filter: `delivery_date=eq.${currentDate}` },
+      onRemoteLinePrice)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'deliveries', filter: `delivery_date=eq.${currentDate}` },
+      onRemotePayment)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'production', filter: `production_date=eq.${currentDate}` },
+      onRemoteProduction)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'prices' }, schedulePricesRefresh)
     .subscribe();
 }
 
 function onRemoteOrder(payload) {
   const r = payload.new;
   if (!r || r.delivery_date !== currentDate) return;
+  if (can.seeAmounts() && !can.seeMoney()) scheduleAmountsRefresh();  // driver totals come from the server
   const pid = String(r.product_id);
   if (pending.has(saveKey(currentDate, r.store_id, pid))) return;  // our unsaved edit is newer
   if (sanitizeQty(orders[r.store_id]?.[pid]) === r.qty) return;    // e.g. the echo of our own save
@@ -2362,12 +2750,86 @@ function onRemoteOrder(payload) {
 function refreshStoreUI(storeId) {
   const o = getOrder(storeId);
   PRODUCTS.forEach(p => {
-    const input = document.getElementById(`${p.id}-${storeId}`);
-    if (input && input !== document.activeElement) input.value = o[p.id];
+    const el = document.getElementById(`${p.id}-${storeId}`);
+    if (!el || el === document.activeElement) return;
+    if (el.tagName === 'INPUT') el.value = o[p.id]; else el.textContent = o[p.id];
   });
   updateSummary();
   updateCardState(storeId);
 }
+
+function onRemoteLinePrice({ new: r }) {
+  if (!r || r.delivery_date !== currentDate) return;
+  linePrices[`${r.store_id}|${r.product_id}`] = r.unit_price == null ? null : Number(r.unit_price);
+  scheduleMoneyRefresh();
+}
+
+// While our own payment/production save is in flight, the realtime echo of an
+// earlier save must not overwrite the newer value already on screen
+const localWrites = new Map();  // key -> saves in flight
+function markLocalWrite(k, delta) {
+  const n = (localWrites.get(k) || 0) + delta;
+  if (n > 0) localWrites.set(k, n); else localWrites.delete(k);
+}
+
+function onRemotePayment({ new: r }) {
+  if (!r || r.delivery_date !== currentDate) return;
+  if (localWrites.has(`deliveries|${r.delivery_date}|${r.store_id}`)) return;
+  if (r.payment_mode) payments[r.store_id] = r.payment_mode; else delete payments[r.store_id];
+  scheduleMoneyRefresh();
+}
+
+function onRemoteProduction({ new: r }) {
+  if (!r || r.production_date !== currentDate) return;
+  if (localWrites.has(`production|${r.production_date}|${r.product_id}`)) return;
+  production[String(r.product_id)] = r.qty_baked;
+  updateTotalsPage();
+  saveCache();
+}
+
+// A price change reprices many lines at once: redraw once, shortly after
+let _moneyTimer;
+function scheduleMoneyRefresh() {
+  clearTimeout(_moneyTimer);
+  _moneyTimer = setTimeout(() => {
+    sortedStores().forEach(s => {
+      const el = document.getElementById(`amount-${s.id}`);
+      if (el) el.textContent = money(storeAmount(s.id));
+    });
+    updateRoutePage();
+    updateTotalsPage();
+    saveCache();
+  }, 100);
+}
+
+let _pricesTimer;
+function schedulePricesRefresh() {
+  clearTimeout(_pricesTimer);
+  _pricesTimer = setTimeout(refreshPrices, 300);
+}
+
+let _amountsTimer;
+function scheduleAmountsRefresh() {
+  clearTimeout(_amountsTimer);
+  _amountsTimer = setTimeout(refreshStopAmounts, 500);
+}
+
+async function refreshStopAmounts() {
+  const date = currentDate;
+  const { data, error } = await sb.rpc('stop_amounts', { p_date: date });
+  if (error || date !== currentDate) return;
+  stopAmounts = {};
+  data.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
+  updateRoutePage();
+  updateTotalsPage();
+  saveCache();
+}
+
+// Drivers can't see price changes as they happen (no access to prices),
+// so their amounts are re-checked every minute while the app is open
+setInterval(() => {
+  if (currentUser && profile.role === 'driver' && document.visibilityState === 'visible') refreshStopAmounts();
+}, 60000);
 
 let _catalogTimer;
 function scheduleCatalogRefresh() {
