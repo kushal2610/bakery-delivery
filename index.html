@@ -550,7 +550,7 @@
   .prod-input:focus { border-color: var(--brown); }
   .prod-diff { min-width: 40px; text-align: right; font-size: 13px; font-weight: 700; color: var(--muted); }
   .prod-diff.short { color: var(--red); }
-  .prod-diff.extra { color: var(--green); }
+  .prod-diff.extra, .prod-diff.ok { color: var(--green); }
   .qty-readonly {
     min-width: 44px; text-align: right;
     font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--brown);
@@ -567,6 +567,37 @@
     text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 5px;
   }
   #productModal > div, #storeModal > div { max-height: 92vh; overflow-y: auto; }
+
+  /* ── ROUTES ── */
+  .route-switch {
+    display: flex; gap: 4px; padding: 4px; margin-bottom: 8px;
+    background: var(--border); border-radius: 12px;
+  }
+  .route-opt {
+    flex: 1; padding: 7px 6px; border: none; border-radius: 9px; cursor: pointer;
+    background: none; color: var(--muted);
+    font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 700; line-height: 1.2;
+  }
+  .route-opt small { display: block; font-size: 10px; font-weight: 500; letter-spacing: 0.3px; }
+  .route-opt.on { background: #fff; color: var(--brown); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+
+  /* ── VALUE PER PRODUCT (admin + baker) ── */
+  .total-amt { font-size: 13px; font-weight: 700; color: var(--green); margin-top: 6px; }
+  .total-amt:empty { display: none; }
+  .total-card.accent .total-amt { color: #9be3b5; font-size: 15px; }
+  .total-amt .warn { display: block; font-size: 11px; font-weight: 500; color: #f5c26b; margin-top: 4px; }
+
+  /* ── PRODUCTION CHECK: baked vs ordered ── */
+  .prod-row.ok    { background: var(--green-bg); }
+  .prod-row.short { background: var(--red-bg); }
+  .prod-row.ok .prod-input    { border-color: var(--green); }
+  .prod-row.short .prod-input { border-color: var(--red); }
+  .prod-status {
+    padding: 10px 16px; font-size: 13px; font-weight: 600; line-height: 1.4;
+    border-bottom: 1px solid var(--border); color: var(--muted); background: var(--cream);
+  }
+  .prod-status.ok    { color: var(--green); background: var(--green-bg); }
+  .prod-status.short { color: var(--red);   background: var(--red-bg); }
 
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 </style>
@@ -698,6 +729,7 @@
   </div>
 
   <div class="search-bar">
+    <div class="route-switch" data-route-switch></div>
     <div class="search-field">
       <input type="search" id="orders-search" class="search-input" placeholder="Search name, area or address"
         autocomplete="off" enterkeyhint="search" aria-label="Search stores"
@@ -740,6 +772,7 @@
     <div class="total-card accent full">
       <div class="total-val" id="tot-total">0</div>
       <div class="total-lbl">Total Items to Bake & Pack</div>
+      <div class="total-amt" id="tot-amount"></div>
     </div>
     <div id="totProducts" style="display:contents"></div>
     <div class="total-card">
@@ -761,7 +794,10 @@
       <span class="section-title">Baked</span>
       <span class="section-hint">Enter what was made</span>
     </div>
-    <div class="store-breakdown" id="productionList"></div>
+    <div class="store-breakdown">
+      <div class="prod-status" id="prodStatus"></div>
+      <div id="productionList"></div>
+    </div>
   </div>
 
   <div class="store-breakdown">
@@ -823,6 +859,7 @@
   </div>
 
   <div class="search-bar" id="storesSearchBar">
+    <div class="route-switch" data-route-switch></div>
     <div class="search-row">
       <div class="search-field">
         <input type="search" id="stores-search" class="search-input" placeholder="Search stores"
@@ -964,8 +1001,13 @@
         ">
       </div>
       <div>
-        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Delivery Sequence #</label>
-        <input id="fSeq" type="number" inputmode="numeric" placeholder="e.g. 5" style="
+        <label class="modal-label">Delivery route</label>
+        <div class="route-switch" id="fRouteSwitch"></div>
+        <input type="hidden" id="fRoute">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Position in route</label>
+        <input id="fSeq" type="number" inputmode="numeric" min="1" placeholder="e.g. 5" style="
           width:100%;padding:12px 14px;border:1.5px solid var(--border);
           border-radius:12px;font-size:16px;font-family:'DM Sans',sans-serif;
           color:var(--brown);background:#fff;outline:none;
@@ -1063,6 +1105,7 @@ function normalizeStore(s) {
     area: String(s?.area ?? ''),
     address: String(s?.address ?? ''),
     seq: parseInt(s?.seq, 10) || id,
+    route: Number(s?.route) === 2 ? 2 : 1,
   };
 }
 
@@ -1086,12 +1129,34 @@ function sortedStores() {
   return STORES.filter(s => !s.archived).sort(bySeq);
 }
 
-// Active store ids in delivery order, with store `id` moved to position `pos` (1-based)
-function orderWithStoreAt(id, pos) {
-  const ids = sortedStores().map(s => s.id).filter(x => x !== id);
+// ── ROUTES ──
+// Each store is on one route. Stops are numbered per route; the saved
+// delivery order is "route 1's stops, then route 2's".
+const ROUTES = {
+  1: { label: 'Route 1', days: 'Mon · Wed · Fri', weekdays: [1, 3, 5] },
+  2: { label: 'Route 2', days: 'Tue · Thu · Sat', weekdays: [2, 4, 6] },
+};
+const routeOf = s => (s.route === 2 ? 2 : 1);
+const routeStores = r => sortedStores().filter(s => routeOf(s) === r);
+const routeIds = r => routeStores(r).map(s => s.id);
+
+// The route that runs on a date's weekday (null on Sunday)
+function routeForDate(iso) {
+  const wd = parseIsoDate(iso).getDay();
+  return [1, 2].find(r => ROUTES[r].weekdays.includes(wd)) || null;
+}
+
+// Full delivery order with route `route` in the order `ids`
+function orderWithRoute(route, ids) {
+  return route === 1 ? [...ids, ...routeIds(2)] : [...routeIds(1), ...ids];
+}
+
+// Full delivery order with store `id` at position `pos` (1-based) of `route`
+function orderWithStoreAt(id, pos, route) {
+  const ids = routeIds(route).filter(x => x !== id);
   const idx = Math.min(Math.max(pos, 1), ids.length + 1) - 1;
   ids.splice(idx, 0, id);
-  return ids;
+  return orderWithRoute(route, ids).filter((x, i, all) => all.indexOf(x) === i);
 }
 
 // ── DATES (local time, "YYYY-MM-DD") ─────────────────────────────────────────
@@ -1119,6 +1184,7 @@ function defaultDeliveryDate() {
 // ── STATE ────────────────────────────────────────────────────────────────────
 let orders = {};  // { storeId: { [productId]: qty } } for currentDate
 let currentDate = defaultDeliveryDate();
+let currentRoute = routeForDate(currentDate) || 1;  // route shown on Orders / Stores
 
 // Money: the database only returns these to admins
 let PRICES = { normal: {}, special: {} };  // normal[pid], special[storeId][pid] (inc. GST)
@@ -1128,6 +1194,8 @@ let payments = {};    // storeId -> 'cash' | 'online' | 'unpaid' (currentDate)
 let stopAmounts = {}; // storeId -> amount (currentDate)
 // Admin + baker
 let production = {};  // pid -> qty baked (currentDate)
+// Baker gets value per product from the server (admin works it out locally)
+let productAmounts = {};  // pid -> { qty, amount, unpriced } (currentDate)
 
 function clearDayData() {
   orders = {};
@@ -1135,6 +1203,7 @@ function clearDayData() {
   payments = {};
   stopAmounts = {};
   production = {};
+  productAmounts = {};
 }
 
 const PAY_MODES = { cash: '💵 Cash', online: '📱 Online', unpaid: '🕒 Unpaid' };
@@ -1152,7 +1221,22 @@ const can = {
   seeMoney:   () => profile.role === 'admin',
   seeAmounts: () => profile.role === 'admin' || profile.role === 'driver',
   production: () => profile.role === 'admin' || profile.role === 'baker',
+  seeProductAmounts: () => profile.role === 'admin' || profile.role === 'baker',
 };
+
+// Value of one product's orders on currentDate (each store at its own price)
+function productAmount(pid) {
+  if (!can.seeMoney()) return productAmounts[pid]?.amount || 0;
+  return Object.entries(orders).reduce((sum, [storeId, o]) =>
+    sum + sanitizeQty(o?.[pid]) * (Number(unitPrice(storeId, pid)) || 0), 0);
+}
+
+// Order lines of a product that have no price (counted as $0)
+function unpricedLines(pid) {
+  if (!can.seeMoney()) return productAmounts[pid]?.unpriced || 0;
+  return Object.entries(orders).filter(([storeId, o]) =>
+    sanitizeQty(o?.[pid]) > 0 && unitPrice(storeId, pid) == null).length;
+}
 
 function effectivePrice(storeId, pid) {
   return PRICES.special[storeId]?.[pid] ?? PRICES.normal[pid] ?? null;
@@ -1226,8 +1310,12 @@ function setDeliveryDate(iso) {
   flushAllSaves();
   currentDate = iso;
   clearDayData();
+  // Show the route that runs that day (Sunday keeps the current one)
+  const dayRoute = routeForDate(iso);
+  if (dayRoute && !reorderDraft) currentRoute = dayRoute;
   updateDateUI();
   renderOrders();
+  if (!reorderDraft) buildStoresPage();
   if (currentUser) {
     subscribeRealtime();
     reloadDay();
@@ -1260,6 +1348,7 @@ function ensureProductCards() {
       <div class="total-card">
         <div class="total-val" id="tot-${p.id}">0</div>
         <div class="total-lbl">${safeText(p.icon || '📦')} ${safeText(p.name)}</div>
+        <div class="total-amt" id="totamt-${p.id}"></div>
       </div>
     `).join('');
   }
@@ -1272,7 +1361,13 @@ function buildOrdersPage() {
   const keepOpen = expandedCard;
   list.innerHTML = '';
   expandedCard = null;
-  sortedStores().forEach(store => {
+  renderRouteSwitches();
+  const stores = routeStores(currentRoute);
+  if (!stores.length && STORES.length) {
+    list.innerHTML = `<div class="search-empty">No stores on ${ROUTES[currentRoute].label} yet.${
+      can.editOrders() ? ' Choose a store\'s route in Stores.' : ''}</div>`;
+  }
+  stores.forEach((store, i) => {
     const o = getOrder(store.id);
     const total = orderTotal(o);
     const card = document.createElement('div');
@@ -1281,11 +1376,11 @@ function buildOrdersPage() {
     card.dataset.search = storeSearchText(store);
     card.innerHTML = `
       <div class="store-card-header" onclick="toggleCard(${store.id})">
-        <div class="store-seq">${store.seq}</div>
+        <div class="store-seq">${i + 1}</div>
         <div class="store-info">
           <div class="store-name">${safeText(store.name)}</div>
           <div class="store-area">${safeText(store.area)}${can.seeMoney()
-            ? ` · <span class="store-amount" id="amount-${store.id}">${money(storeAmount(store.id))}</span>` : ''}</div>
+            ? `${store.area ? ' · ' : ''}<span class="store-amount" id="amount-${store.id}">${money(storeAmount(store.id))}</span>` : ''}</div>
         </div>
         <div class="store-total-badge" id="badge-${store.id}">${total}</div>
       </div>
@@ -1314,6 +1409,22 @@ function buildOrdersPage() {
     expandedCard = keepOpen;
   }
   applySearch('orders');
+}
+
+function renderRouteSwitches() {
+  document.querySelectorAll('[data-route-switch]').forEach(el => {
+    el.innerHTML = [1, 2].map(r => `
+      <button type="button" class="route-opt${r === currentRoute ? ' on' : ''}" aria-pressed="${r === currentRoute}"
+        onclick="setRoute(${r})">${ROUTES[r].label} · ${routeStores(r).length}<small>${ROUTES[r].days}</small></button>`).join('');
+  });
+}
+
+function setRoute(r) {
+  r = r === 2 ? 2 : 1;
+  if (r === currentRoute || reorderDraft) return;
+  currentRoute = r;
+  buildOrdersPage();
+  buildStoresPage();
 }
 
 // ── STORE SEARCH ─────────────────────────────────────────────────────────────
@@ -1417,7 +1528,8 @@ function updateSummary() {
 // ── ROUTE PAGE ───────────────────────────────────────────────────────────────
 // Stores with orders on the selected date (incl. stores archived since)
 function orderedStores() {
-  return [...STORES].sort(bySeq).filter(s => orderTotal(getOrder(s.id)) > 0);
+  return [...STORES].sort((a, b) => routeOf(a) - routeOf(b) || bySeq(a, b))
+    .filter(s => orderTotal(getOrder(s.id)) > 0);
 }
 
 function updateRoutePage() {
@@ -1765,11 +1877,22 @@ function updateTotalsPage() {
     PRODUCTS.forEach(p => sums[p.id] += sanitizeQty(o[p.id]));
     grand += orderTotal(o);
   });
+  const showValue = can.seeProductAmounts();
+  let totalValue = 0, unpriced = 0;
   PRODUCTS.forEach(p => {
     const el = document.getElementById(`tot-${p.id}`);
     if (el) el.textContent = sums[p.id];
+    const value = showValue ? productAmount(p.id) : 0;
+    totalValue += value;
+    unpriced += showValue ? unpricedLines(p.id) : 0;
+    const amt = document.getElementById(`totamt-${p.id}`);
+    if (amt) amt.textContent = showValue && sums[p.id] ? money(value) : '';
   });
   document.getElementById('tot-total').textContent = grand;
+  document.getElementById('tot-amount').innerHTML = showValue && grand
+    ? `${money(totalValue)} total value${unpriced
+      ? `<span class="warn">⚠️ ${unpriced} order line${unpriced > 1 ? 's have' : ' has'} no price (counted as $0)</span>` : ''}`
+    : '';
   document.getElementById('tot-stores').textContent = stops.length;
   renderMoney(stops);
   renderProduction(sums);
@@ -1837,17 +1960,38 @@ function renderProduction(needed) {
         <div class="prod-diff" id="diff-${p.id}"></div>
       </div>`).join('');
   }
+  // Green: baked >= ordered. Red: baked < ordered. Plain: not entered yet.
+  const short = [], waiting = [];
   PRODUCTS.forEach(p => {
     const need = needed[p.id] || 0;
     const baked = production[p.id];
-    document.getElementById(`need-${p.id}`).textContent = `Needed ${need}`;
+    document.getElementById(`need-${p.id}`).textContent = `Ordered ${need}`;
     const input = document.getElementById(`baked-${p.id}`);
     if (input !== document.activeElement) input.value = baked ?? '';
     const diff = baked == null ? null : baked - need;
+    const state = diff == null ? '' : diff < 0 ? 'short' : 'ok';
+    input.closest('.prod-row').className = 'prod-row' + (state ? ` ${state}` : '');
     const el = document.getElementById(`diff-${p.id}`);
     el.textContent = diff == null ? '' : diff === 0 ? '✓' : diff > 0 ? `+${diff}` : `${diff}`;
-    el.className = 'prod-diff' + (diff < 0 ? ' short' : diff > 0 ? ' extra' : '');
+    el.className = 'prod-diff' + (state === 'short' ? ' short' : state === 'ok' ? ' ok' : '');
+    if (state === 'short') short.push(`${p.name} ${diff}`);
+    else if (diff == null && need > 0) waiting.push(p.name);
   });
+  const status = document.getElementById('prodStatus');
+  const anyOrders = PRODUCTS.some(p => needed[p.id] > 0);
+  if (short.length) {
+    status.className = 'prod-status short';
+    status.textContent = `⚠️ Short: ${short.join(', ')}` + (waiting.length ? ` · not entered: ${waiting.join(', ')}` : '');
+  } else if (waiting.length) {
+    status.className = 'prod-status';
+    status.textContent = `Waiting for production: ${waiting.join(', ')}`;
+  } else if (anyOrders) {
+    status.className = 'prod-status ok';
+    status.textContent = '✅ Production covers all orders';
+  } else {
+    status.className = 'prod-status';
+    status.textContent = 'No orders for this date yet';
+  }
 }
 
 async function setBaked(pid, value) {
@@ -2064,7 +2208,8 @@ function buildStoresPage() {
   const reordering = !!reorderDraft;
   const rows = reordering
     ? reorderDraft.map(id => STORES.find(s => s.id === id)).filter(Boolean)
-    : sortedStores();
+    : routeStores(currentRoute);
+  renderRouteSwitches();
   list.classList.toggle('reordering', reordering);
   list.innerHTML = '';
   rows.forEach((store, i) => {
@@ -2084,7 +2229,7 @@ function buildStoresPage() {
         background:var(--rust);color:#fff;
         font-family:'Playfair Display',serif;font-size:14px;font-weight:700;
         display:flex;align-items:center;justify-content:center;flex-shrink:0;
-      ">${reordering ? i + 1 : store.seq}</div>
+      ">${i + 1}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:15px;font-weight:600;color:var(--brown)">${safeText(store.name)}</div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px;
@@ -2107,6 +2252,7 @@ function buildStoresPage() {
 // "Edit order" works on a draft list of store ids; nothing is saved until Save.
 let reorderDraft = null;     // store ids in draft order, or null when not reordering
 let reorderOriginal = null;  // order when editing started, to detect changes
+let reorderRoute = null;     // the route being reordered
 
 function setReorderUI(on) {
   document.getElementById('storesSearchBar').hidden = on;
@@ -2116,9 +2262,12 @@ function setReorderUI(on) {
 }
 
 function startReorder() {
-  if (STORES.length < 2) { showToast('Add at least 2 stores to reorder'); return; }
-  reorderDraft = sortedStores().map(s => s.id);
+  const ids = routeIds(currentRoute);
+  if (ids.length < 2) { showToast(`${ROUTES[currentRoute].label} needs at least 2 stores to reorder`); return; }
+  reorderRoute = currentRoute;
+  reorderDraft = ids;
   reorderOriginal = [...reorderDraft];
+  document.querySelector('.reorder-hint').innerHTML = `Drag <strong>☰</strong> to set the ${ROUTES[reorderRoute].label} order`;
   setReorderUI(true);
   buildStoresPage();
 }
@@ -2129,7 +2278,7 @@ function isReorderDirty() {
 
 function exitReorder() {
   endDrag();
-  reorderDraft = reorderOriginal = null;
+  reorderDraft = reorderOriginal = reorderRoute = null;
   setReorderUI(false);
   buildStoresPage();
 }
@@ -2141,7 +2290,7 @@ function cancelReorder() {
 async function saveReorder() {
   if (drag) return;
   if (!isReorderDirty()) { exitReorder(); showToast('Order unchanged'); return; }
-  const ids = [...reorderDraft];
+  const ids = orderWithRoute(reorderRoute, [...reorderDraft]);
   const btn = document.querySelector('.reorder-save');
   btn.disabled = true;
   const res = await dbCall(sb.rpc('reorder_stores', { store_ids: ids }));
@@ -2261,7 +2410,8 @@ function openAddStore() {
   document.getElementById('fName').value = '';
   document.getElementById('fArea').value = '';
   document.getElementById('fAddress').value = '';
-  document.getElementById('fSeq').value = sortedStores().length + 1;
+  setFormRoute(currentRoute);
+  document.getElementById('fSeq').value = routeIds(currentRoute).length + 1;
   document.getElementById('deleteStoreBtn').style.display = 'none';
   renderStorePriceInputs(null);
   const modal = document.getElementById('storeModal');
@@ -2277,10 +2427,28 @@ function openEditStore(id) {
   document.getElementById('fName').value = store.name;
   document.getElementById('fArea').value = store.area || '';
   document.getElementById('fAddress').value = store.address || '';
-  document.getElementById('fSeq').value = store.seq;
+  setFormRoute(routeOf(store));
+  document.getElementById('fSeq').value = routeIds(routeOf(store)).indexOf(id) + 1;
   document.getElementById('deleteStoreBtn').style.display = 'block';
   renderStorePriceInputs(id);
   document.getElementById('storeModal').style.display = 'flex';
+}
+
+function setFormRoute(r) {
+  document.getElementById('fRoute').value = r;
+  document.getElementById('fRouteSwitch').innerHTML = [1, 2].map(x => `
+    <button type="button" class="route-opt${x === r ? ' on' : ''}" aria-pressed="${x === r}"
+      onclick="pickFormRoute(${x})">${ROUTES[x].label}<small>${ROUTES[x].days}</small></button>`).join('');
+}
+
+// Switching route in the form suggests "last stop" on the new route
+function pickFormRoute(r) {
+  const id = parseInt(document.getElementById('editStoreId').value, 10);
+  const store = STORES.find(s => s.id === id);
+  setFormRoute(r);
+  document.getElementById('fSeq').value = store && routeOf(store) === r
+    ? routeIds(r).indexOf(id) + 1
+    : routeIds(r).filter(x => x !== id).length + 1;
 }
 
 function renderStorePriceInputs(storeId) {
@@ -2314,7 +2482,9 @@ async function saveStore() {
 
   _busy = true;
   try {
-    const fields = { name, area, address };
+    const route = Number(document.getElementById('fRoute').value) === 2 ? 2 : 1;
+    const fields = { name, area, address, route };
+    const current = sortedStores().map(s => s.id);
     let id = editId;
     if (id) {
       if (!(await dbCall(sb.from('stores').update(fields).eq('id', id).select('id'), true)).ok) return;
@@ -2323,11 +2493,13 @@ async function saveStore() {
       const res = await dbCall(sb.from('stores').insert({ ...fields, seq }).select('id').single());
       if (!res.ok) return;
       id = res.data.id;
-      STORES.push({ id, ...fields, seq, archived: false });
+      STORES.push({ id, ...fields, seq: Number.MAX_SAFE_INTEGER, archived: false });
     }
-    // The Seq field is a position in the delivery order: move there and renumber all
-    const current = sortedStores().map(s => s.id);
-    const order = orderWithStoreAt(id, seqIn || current.indexOf(id) + 1);
+    // Position is within the store's route; blank keeps its place (or last if the route changed)
+    const store = STORES.find(s => s.id === id);
+    const keepPos = store && routeOf(store) === route ? routeIds(route).indexOf(id) + 1 : 0;
+    if (store) store.route = route;
+    const order = orderWithStoreAt(id, seqIn || keepPos || routeIds(route).length, route);
     if (order.join() !== current.join()) {
       await dbCall(sb.rpc('reorder_stores', { store_ids: order }));
     }
@@ -2352,7 +2524,7 @@ async function deleteStore() {
     const res = await dbCall(sb.from('stores').update({ archived: true }).eq('id', editId).select('id'), true);
     if (!res.ok) return;
     // Close the gap in the delivery order
-    const remaining = sortedStores().map(s => s.id).filter(id => id !== editId);
+    const remaining = [...routeIds(1), ...routeIds(2)].filter(id => id !== editId);
     await dbCall(sb.rpc('reorder_stores', { store_ids: remaining }));
     closeStoreModal();
     showToast('Store removed');
@@ -2497,17 +2669,20 @@ function applyRoleUI() {
   btn.title = currentUser ? `${name} · ${role || 'no role'}` : '';
   document.querySelector('#page-orders .section-hint').textContent =
     can.editOrders() ? 'Tap store to enter qty' : 'Tap store to see qty';
-  // Stay on a page this role can use (e.g. a driver starts on Route)
+  // A new sign-in starts on that role's first page (a driver on Route, a
+  // baker on Totals); later refreshes keep the page unless it isn't allowed
   const tabs = ROLE_TABS[role];
   const active = document.querySelector('.page.active')?.id.replace('page-', '');
-  if (tabs && !tabs.includes(active)) showPage(tabs[0]);
+  if (tabs && (role !== _uiRole || !tabs.includes(active))) showPage(tabs[0]);
+  _uiRole = role;
   checkLegacyData();
 }
+let _uiRole = null;  // role the UI was last set up for
 
 // ── SUPABASE: LOADING ────────────────────────────────────────────────────────
 async function loadCatalog() {
   const [st, pr] = await Promise.all([
-    sb.from('stores').select('id,name,area,address,seq,archived'),
+    sb.from('stores').select('id,name,area,address,seq,route,archived'),
     sb.from('products').select('id,name,icon,sort').eq('archived', false).order('sort').order('id'),
   ]);
   if (st.error) throw st.error;
@@ -2537,17 +2712,20 @@ async function loadDay() {
     sb.from('deliveries').select('store_id,payment_mode').eq('delivery_date', date),
     sb.from('production').select('product_id,qty_baked').eq('production_date', date),
     sb.rpc('stop_amounts', { p_date: date }),
+    sb.rpc('product_amounts', { p_date: date }),
   ]);
   const failed = results.find(r => r.error);
   if (failed) throw failed.error;
   if (date !== currentDate) return false;
-  const [items, lines, pays, baked, amounts] = results.map(r => r.data || []);
+  const [items, lines, pays, baked, amounts, perProduct] = results.map(r => r.data || []);
   clearDayData();
   items.forEach(r => applyQty(r.store_id, String(r.product_id), r.qty));
   lines.forEach(r => linePrices[`${r.store_id}|${r.product_id}`] = r.unit_price == null ? null : Number(r.unit_price));
   pays.forEach(r => { if (r.payment_mode) payments[r.store_id] = r.payment_mode; });
   baked.forEach(r => production[String(r.product_id)] = r.qty_baked);
   amounts.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
+  perProduct.forEach(r => productAmounts[String(r.product_id)] =
+    { qty: Number(r.qty), amount: Number(r.amount), unpriced: Number(r.unpriced) });
   // Edits not yet saved stay on screen
   pending.forEach(p => { if (p.date === date) applyQty(p.storeId, p.productId, p.qty); });
   return true;
@@ -2626,7 +2804,7 @@ function saveCache() {
   if (!currentUser || !dataLoaded) return;
   store.set(CACHE_KEY, JSON.stringify({
     userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES,
-    date: currentDate, orders, linePrices, payments, stopAmounts, production,
+    date: currentDate, orders, linePrices, payments, stopAmounts, production, productAmounts,
   }));
 }
 
@@ -2645,6 +2823,7 @@ function loadCache() {
       linePrices = { ...c.linePrices };
       payments = { ...c.payments };
       stopAmounts = { ...c.stopAmounts };
+      productAmounts = { ...c.productAmounts };
       production = { ...c.production };
     }
   } catch (_) {}
@@ -2737,7 +2916,8 @@ function subscribeRealtime() {
 function onRemoteOrder(payload) {
   const r = payload.new;
   if (!r || r.delivery_date !== currentDate) return;
-  if (can.seeAmounts() && !can.seeMoney()) scheduleAmountsRefresh();  // driver totals come from the server
+  // Driver/baker money comes from the server, so ask again after an order change
+  if (!can.seeMoney() && (can.seeAmounts() || can.seeProductAmounts())) scheduleAmountsRefresh();
   const pid = String(r.product_id);
   if (pending.has(saveKey(currentDate, r.store_id, pid))) return;  // our unsaved edit is newer
   if (sanitizeQty(orders[r.store_id]?.[pid]) === r.qty) return;    // e.g. the echo of our own save
@@ -2811,24 +2991,33 @@ function schedulePricesRefresh() {
 let _amountsTimer;
 function scheduleAmountsRefresh() {
   clearTimeout(_amountsTimer);
-  _amountsTimer = setTimeout(refreshStopAmounts, 500);
+  _amountsTimer = setTimeout(refreshServerAmounts, 500);
 }
 
-async function refreshStopAmounts() {
+// Amounts per stop (driver) and value per product (baker); each role only
+// gets what it may see, the rest comes back empty
+async function refreshServerAmounts() {
   const date = currentDate;
-  const { data, error } = await sb.rpc('stop_amounts', { p_date: date });
-  if (error || date !== currentDate) return;
+  const [stops, perProduct] = await Promise.all([
+    sb.rpc('stop_amounts', { p_date: date }),
+    sb.rpc('product_amounts', { p_date: date }),
+  ]);
+  if (stops.error || perProduct.error || date !== currentDate) return;
   stopAmounts = {};
-  data.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
+  stops.data.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
+  productAmounts = {};
+  perProduct.data.forEach(r => productAmounts[String(r.product_id)] =
+    { qty: Number(r.qty), amount: Number(r.amount), unpriced: Number(r.unpriced) });
   updateRoutePage();
   updateTotalsPage();
   saveCache();
 }
 
-// Drivers can't see price changes as they happen (no access to prices),
-// so their amounts are re-checked every minute while the app is open
+// Drivers and bakers can't see price changes as they happen (no access to
+// prices), so their amounts are re-checked every minute while the app is open
 setInterval(() => {
-  if (currentUser && profile.role === 'driver' && document.visibilityState === 'visible') refreshStopAmounts();
+  if (currentUser && !can.seeMoney() && (can.seeAmounts() || can.seeProductAmounts())
+      && document.visibilityState === 'visible') refreshServerAmounts();
 }, 60000);
 
 let _catalogTimer;

@@ -54,6 +54,7 @@ old `staff` role become `driver`) and keeps all data.
 | See order quantities, route, Copy Table, Save PDF | ✓ | ✓ | ✓ |
 | Enter / change order quantities | ✓ | | |
 | Record what was baked (Totals → Baked) | ✓ | ✓ | |
+| Value per product and day total, for invoices (Totals) | ✓ | ✓ | |
 | Amount per stop and total for the day | ✓ | | ✓ |
 | Prices, payment mode (Cash / Online / Unpaid), sales totals | ✓ | | |
 | Add / edit / remove stores and products, reorder stores | ✓ | | |
@@ -78,6 +79,30 @@ names. Every change records who made it (`updated_by`).
   `schema.sql`).
 - Totals warns if any order line has no price (counted as $0).
 - The WhatsApp table and the PDF never show prices.
+- Totals shows each product's value for the day (e.g. 10 × 6 Pack = $30.00)
+  and the total, with each store at its own price. The baker sees these for
+  invoicing but not unit prices, store amounts or payments.
+
+## Production check
+
+The baker enters what was made in **Totals → Baked**. Each product turns
+**green** when baked ≥ ordered and **red** when short (with the difference),
+and the line above sums it up: "✅ Production covers all orders", "⚠️ Short:
+9 Pack -2", or what's still waiting to be entered. It updates live when an
+order changes.
+
+## Routes
+
+- **Route 1** runs Mon · Wed · Fri, **Route 2** Tue · Thu · Sat. Set a
+  store's route in Stores → edit store. Existing stores start on Route 1.
+- The toggle on **Orders** and **Stores** shows one route's stores. It
+  follows the delivery date (a Thursday shows Route 2). Tap it to switch;
+  Sunday keeps the current one.
+- Stops are numbered per route. "Edit order" and "Position in route" only
+  reorder within that route.
+- The **Route** tab and the PDF list every store with orders on the date,
+  route 1's stops first.
+- Route days are set in `ROUTES` in `index.html`.
 
 ## Notes
 
