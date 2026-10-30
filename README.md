@@ -54,7 +54,7 @@ old `staff` role become `driver`) and keeps all data.
 | See order quantities, route, Copy Table, Save PDF | ✓ | ✓ | ✓ |
 | Enter / change order quantities | ✓ | | |
 | Record what was baked (**Bake** tab) | ✓ | ✓ | |
-| Price breakdown per product and day total, for invoices (**Bake** tab, Totals) | ✓ | ✓ | |
+| Store invoices: each store's products, prices and total, plus the day total (**Bake** tab) | ✓ | ✓ | |
 | Amount per stop and total for the day | ✓ | | ✓ |
 | Prices, payment mode (Cash / Online / Unpaid), sales totals | ✓ | | |
 | Add / edit / remove stores and products, reorder stores | ✓ | | |
@@ -84,11 +84,13 @@ names. Every change records who made it (`updated_by`).
   `schema.sql`).
 - Totals warns if any order line has no price (counted as $0).
 - The WhatsApp table and the PDF never show prices.
-- **Bake → Price Breakdown** lists each product as `qty × price = amount`.
-  A store's special price gets its own line, and an item without a price is
-  flagged. It ends with a subtotal per product and the day's total (Totals
-  shows the same values on the product cards). The baker sees this for
-  invoicing, but not store names with prices, store amounts or payments.
+- **Bake → Store Invoices** lists every store that ordered, in delivery
+  order, with one line per product: `qty × product @ price = amount`
+  (using that store's special price if it has one). Each store shows its
+  total, and the list ends with the overall total. An item without a price is
+  flagged and counted as $0. The baker sees this for invoicing; payment
+  modes and the price lists stay admin-only. Totals still shows the value per
+  product on the product cards.
 
 ## Production check
 

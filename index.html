@@ -588,7 +588,10 @@
   .total-amt .warn { display: block; font-size: 11px; font-weight: 500; color: #f5c26b; margin-top: 4px; }
 
   /* ── PRICE BREAKDOWN (Bake tab) ── */
-  .pb-product { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .pb-store { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .pb-line span:first-child { min-width: 0; }
+  .pb-line .at { color: var(--muted); font-size: 12px; }
+  .pb-sub { font-size: 12px; color: var(--muted); font-weight: 500; }
   .pb-head { display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; color: var(--brown); }
   .pb-line {
     display: flex; justify-content: space-between; margin-top: 4px;
@@ -839,7 +842,7 @@
   </div>
 
   <div class="section-header">
-    <span class="section-title">Price Breakdown</span>
+    <span class="section-title">Store Invoices</span>
     <span class="section-hint">inc. GST</span>
   </div>
   <div class="store-breakdown" id="priceBreakdown"></div>
@@ -1228,8 +1231,8 @@ let payments = {};    // storeId -> 'cash' | 'online' | 'unpaid' (currentDate)
 let stopAmounts = {}; // storeId -> amount (currentDate)
 // Admin + baker
 let production = {};  // pid -> qty baked (currentDate)
-// Baker gets the price breakdown from the server (admin works it out locally)
-let productBreakdown = {};  // pid -> [{ price, qty, amount }] (currentDate; price null = no price)
+// Baker gets the invoice lines from the server (admin works them out locally)
+let storeLines = {};  // storeId -> { pid -> { qty, price, amount } } (currentDate; price null = no price)
 
 function clearDayData() {
   orders = {};
@@ -1237,7 +1240,7 @@ function clearDayData() {
   payments = {};
   stopAmounts = {};
   production = {};
-  productBreakdown = {};
+  storeLines = {};
 }
 
 const PAY_MODES = { cash: '💵 Cash', online: '📱 Online', unpaid: '🕒 Unpaid' };
@@ -1258,28 +1261,25 @@ const can = {
   seeProductAmounts: () => profile.role === 'admin' || profile.role === 'baker',
 };
 
-// One product's orders on currentDate grouped by unit price (a store's special
-// price gets its own line), highest price first; price null = no price set
-function priceBreakdown(pid) {
-  if (!can.seeMoney()) return productBreakdown[pid] || [];
-  const byPrice = new Map();
-  Object.entries(orders).forEach(([storeId, o]) => {
-    const qty = sanitizeQty(o?.[pid]);
-    if (!qty) return;
-    const p = unitPrice(storeId, pid);
-    const price = p == null ? null : Number(p);
-    const line = byPrice.get(price) || { price, qty: 0, amount: 0 };
-    line.qty += qty;
-    line.amount += qty * (price || 0);
-    byPrice.set(price, line);
-  });
-  return [...byPrice.values()].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
+// Invoice line for one store and product on currentDate: qty × the price saved
+// with that order line (price null = no price set), or null if not ordered
+function invoiceLine(storeId, pid) {
+  if (!can.seeMoney()) return storeLines[storeId]?.[pid] || null;
+  const qty = sanitizeQty(orders[storeId]?.[pid]);
+  if (!qty) return null;
+  const p = unitPrice(storeId, pid);
+  const price = p == null ? null : Number(p);
+  return { qty, price, amount: qty * (price || 0) };
 }
 
+const storeIdsWithLines = () => can.seeMoney() ? Object.keys(orders) : Object.keys(storeLines);
 // Value of one product's orders (each store at its own price)
-const productAmount = pid => priceBreakdown(pid).reduce((sum, l) => sum + l.amount, 0);
+const productAmount = pid => storeIdsWithLines().reduce((sum, s) => sum + (invoiceLine(s, pid)?.amount || 0), 0);
 // Items of a product with no price (counted as $0)
-const unpricedItems = pid => priceBreakdown(pid).filter(l => l.price == null).reduce((n, l) => n + l.qty, 0);
+const unpricedItems = pid => storeIdsWithLines().reduce((n, s) => {
+  const l = invoiceLine(s, pid);
+  return n + (l && l.price == null ? l.qty : 0);
+}, 0);
 
 function effectivePrice(storeId, pid) {
   return PRICES.special[storeId]?.[pid] ?? PRICES.normal[pid] ?? null;
@@ -1939,7 +1939,7 @@ function updateTotalsPage() {
   document.getElementById('tot-stores').textContent = stops.length;
   renderMoney(stops);
   renderProduction(sums);
-  renderPriceBreakdown(sums);
+  renderPriceBreakdown();
 
   const bl = document.getElementById('breakdownList');
   if (!stops.length) {
@@ -1963,29 +1963,33 @@ function updateTotalsPage() {
   }).join('');
 }
 
-// Bake tab: per product, "qty × price = amount" for each price, then totals
-function renderPriceBreakdown(sums) {
+// Bake tab: for each store that ordered (in delivery order), one line per
+// product "qty × product @ price = amount", the store total, then the overall total
+function renderPriceBreakdown() {
   const box = document.getElementById('priceBreakdown');
   document.getElementById('bakeDate').textContent = formatDeliveryDate(deliveryDate());
   if (!can.seeProductAmounts()) { box.innerHTML = ''; return; }
-  const items = PRODUCTS.filter(p => sums[p.id] > 0);
-  if (!items.length) {
+  const stores = orderedStores();
+  if (!stores.length) {
     box.innerHTML = '<div class="pb-empty">No orders for this date</div>';
     return;
   }
   let totalQty = 0, totalAmount = 0;
-  box.innerHTML = items.map(p => {
-    const lines = priceBreakdown(p.id);
-    const amount = lines.reduce((s, l) => s + l.amount, 0);
-    totalQty += sums[p.id];
+  box.innerHTML = stores.map(s => {
+    const lines = PRODUCTS.map(p => ({ p, l: invoiceLine(s.id, p.id) })).filter(x => x.l);
+    const qty = lines.reduce((n, x) => n + x.l.qty, 0);
+    const amount = lines.reduce((sum, x) => sum + x.l.amount, 0);
+    totalQty += qty;
     totalAmount += amount;
-    return `<div class="pb-product" id="pb-${p.id}">
-      <div class="pb-head"><span>${safeText(p.icon)} ${safeText(p.name)}</span><span>${money(amount)}</span></div>
-      ${lines.map(l => l.price == null
-        ? `<div class="pb-line warn"><span>${l.qty} × no price set</span><span>${money(0)}</span></div>`
-        : `<div class="pb-line"><span>${l.qty} × ${money(l.price)}</span><span>${money(l.amount)}</span></div>`).join('')}
+    return `<div class="pb-store" id="pb-${s.id}">
+      <div class="pb-head"><span>${safeText(s.name)} <span class="pb-sub">${safeText(s.area)}</span></span>
+        <span class="pb-store-total">${money(amount)}</span></div>
+      ${lines.map(({ p, l }) => `<div class="pb-line${l.price == null ? ' warn' : ''}">
+        <span>${l.qty} × ${safeText(p.name)} <span class="at">${l.price == null ? '· no price set' : `@ ${money(l.price)}`}</span></span>
+        <span>${money(l.amount)}</span></div>`).join('')}
     </div>`;
-  }).join('') + `<div class="pb-total"><span>Total · ${totalQty} items</span><span class="amt" id="pb-total">${money(totalAmount)}</span></div>`;
+  }).join('') + `<div class="pb-total"><span>Total · ${stores.length} store${stores.length > 1 ? 's' : ''} · ${totalQty} items</span>
+    <span class="amt" id="pb-total">${money(totalAmount)}</span></div>`;
 }
 
 const moneyCard = (label, amount, cls = '') =>
@@ -2785,11 +2789,10 @@ function optionalRpc(res) {
 }
 
 function setBreakdown(rows) {
-  productBreakdown = {};
-  rows.forEach(r => (productBreakdown[String(r.product_id)] ||= []).push({
-    price: r.unit_price == null ? null : Number(r.unit_price), qty: Number(r.qty), amount: Number(r.amount),
-  }));
-  Object.values(productBreakdown).forEach(l => l.sort((a, b) => (b.price ?? -1) - (a.price ?? -1)));
+  storeLines = {};
+  rows.forEach(r => (storeLines[r.store_id] ||= {})[String(r.product_id)] = {
+    qty: Number(r.qty), price: r.unit_price == null ? null : Number(r.unit_price), amount: Number(r.amount),
+  });
 }
 
 // Returns false if the date changed while loading (result discarded)
@@ -2802,7 +2805,7 @@ async function loadDay() {
     sb.from('deliveries').select('store_id,payment_mode').eq('delivery_date', date),
     sb.from('production').select('product_id,qty_baked').eq('production_date', date),
     sb.rpc('stop_amounts', { p_date: date }).then(optionalRpc),
-    sb.rpc('product_price_breakdown', { p_date: date }).then(optionalRpc),
+    sb.rpc('store_price_breakdown', { p_date: date }).then(optionalRpc),
   ]);
   const failed = results.find(r => r.error);
   if (failed) throw failed.error;
@@ -2893,7 +2896,7 @@ function saveCache() {
   if (!currentUser || !dataLoaded) return;
   store.set(CACHE_KEY, JSON.stringify({
     userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES,
-    date: currentDate, orders, linePrices, payments, stopAmounts, production, productBreakdown,
+    date: currentDate, orders, linePrices, payments, stopAmounts, production, storeLines,
   }));
 }
 
@@ -2912,7 +2915,7 @@ function loadCache() {
       linePrices = { ...c.linePrices };
       payments = { ...c.payments };
       stopAmounts = { ...c.stopAmounts };
-      productBreakdown = { ...c.productBreakdown };
+      storeLines = { ...c.storeLines };
       production = { ...c.production };
     }
   } catch (_) {}
@@ -3089,7 +3092,7 @@ async function refreshServerAmounts() {
   const date = currentDate;
   const [stops, breakdown] = await Promise.all([
     sb.rpc('stop_amounts', { p_date: date }).then(optionalRpc),
-    sb.rpc('product_price_breakdown', { p_date: date }).then(optionalRpc),
+    sb.rpc('store_price_breakdown', { p_date: date }).then(optionalRpc),
   ]);
   if (date !== currentDate) return;
   stopAmounts = {};
