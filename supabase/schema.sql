@@ -15,7 +15,7 @@
 --     stores, products, quantities  edit    view    view
 --     prices, payments, sales $     edit     -       -
 --     amount per stop               view     -      view   (via stop_amounts())
---     value per product             view    view     -     (via product_amounts())
+--     price breakdown per product   view    view     -     (via product_price_breakdown())
 --     production (what was baked)   edit    edit     -
 --     store routes (1 = MWF, 2 = TTS) edit  view    view
 --
@@ -287,20 +287,23 @@ as $$
    group by oi.store_id;
 $$;
 
--- Quantity and value per product for one date (each store at its own price),
--- plus how many order lines have no price. For the baker's invoices; no unit
--- prices, store amounts or payments are exposed.
-create or replace function public.product_amounts(p_date date)
-returns table (product_id bigint, qty bigint, amount numeric, unpriced bigint)
+-- Replaced by product_price_breakdown()
+drop function if exists public.product_amounts(date);
+
+-- Price breakdown per product for one date: one row per product and unit
+-- price (a store's special price gets its own row; null = no price set).
+-- For the baker's invoices: no store names, store amounts or payments.
+create or replace function public.product_price_breakdown(p_date date)
+returns table (product_id bigint, unit_price numeric, qty bigint, amount numeric)
 language sql
 stable
 security definer
 set search_path = ''
 as $$
   select oi.product_id,
+         oip.unit_price,
          sum(oi.qty)::bigint,
-         sum(oi.qty * coalesce(oip.unit_price, 0))::numeric(12, 2),
-         count(*) filter (where oip.unit_price is null)::bigint
+         sum(oi.qty * coalesce(oip.unit_price, 0))::numeric(12, 2)
     from public.order_items oi
     left join public.order_item_prices oip
       on oip.delivery_date = oi.delivery_date
@@ -309,7 +312,7 @@ as $$
    where oi.delivery_date = p_date
      and oi.qty > 0
      and public.app_role() in ('admin', 'baker')
-   group by oi.product_id;
+   group by oi.product_id, oip.unit_price;
 $$;
 
 
@@ -338,8 +341,8 @@ revoke execute on function public.price_new_order_item() from public, anon, auth
 revoke execute on function public.reprice_open_orders() from public, anon, authenticated;
 revoke execute on function public.stop_amounts(date) from public, anon;
 grant  execute on function public.stop_amounts(date) to authenticated;
-revoke execute on function public.product_amounts(date) from public, anon;
-grant  execute on function public.product_amounts(date) to authenticated;
+revoke execute on function public.product_price_breakdown(date) from public, anon;
+grant  execute on function public.product_price_breakdown(date) to authenticated;
 
 -- Remove rules from earlier versions of this script
 drop policy if exists "profiles: read own (admins read all)" on public.profiles;

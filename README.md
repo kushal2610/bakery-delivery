@@ -53,15 +53,20 @@ old `staff` role become `driver`) and keeps all data.
 |---|:---:|:---:|:---:|
 | See order quantities, route, Copy Table, Save PDF | ✓ | ✓ | ✓ |
 | Enter / change order quantities | ✓ | | |
-| Record what was baked (Totals → Baked) | ✓ | ✓ | |
-| Value per product and day total, for invoices (Totals) | ✓ | ✓ | |
+| Record what was baked (**Bake** tab) | ✓ | ✓ | |
+| Price breakdown per product and day total, for invoices (**Bake** tab, Totals) | ✓ | ✓ | |
 | Amount per stop and total for the day | ✓ | | ✓ |
 | Prices, payment mode (Cash / Online / Unpaid), sales totals | ✓ | | |
 | Add / edit / remove stores and products, reorder stores | ✓ | | |
 | Clear all quantities for a date | ✓ | | |
 
-Tabs: admin sees all five. The baker starts on Totals (with Orders and Route
-read-only). The driver gets Route and Totals.
+Tabs: the admin sees all six. The baker starts on **Bake** and also gets
+Orders, Route (read-only) and Totals. The driver gets Route and Totals.
+
+If someone sees the wrong tabs, check their role: tap the initial in the top
+bar, or run `select u.email, p.role from auth.users u join public.profiles p
+on p.id = u.id;`. Accounts with the first version's `staff` role became
+`driver`.
 
 The database enforces these rules, so hiding a button is not the only
 protection. Money is kept in admin-only tables, and drivers only get a total
@@ -79,13 +84,15 @@ names. Every change records who made it (`updated_by`).
   `schema.sql`).
 - Totals warns if any order line has no price (counted as $0).
 - The WhatsApp table and the PDF never show prices.
-- Totals shows each product's value for the day (e.g. 10 × 6 Pack = $30.00)
-  and the total, with each store at its own price. The baker sees these for
-  invoicing but not unit prices, store amounts or payments.
+- **Bake → Price Breakdown** lists each product as `qty × price = amount`.
+  A store's special price gets its own line, and an item without a price is
+  flagged. It ends with a subtotal per product and the day's total (Totals
+  shows the same values on the product cards). The baker sees this for
+  invoicing, but not store names with prices, store amounts or payments.
 
 ## Production check
 
-The baker enters what was made in **Totals → Baked**. Each product turns
+The baker enters what was made on the **Bake** tab. Each product turns
 **green** when baked ≥ ordered and **red** when short (with the difference),
 and the line above sums it up: "✅ Production covers all orders", "⚠️ Short:
 9 Pack -2", or what's still waiting to be entered. It updates live when an

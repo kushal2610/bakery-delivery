@@ -587,6 +587,21 @@
   .total-card.accent .total-amt { color: #9be3b5; font-size: 15px; }
   .total-amt .warn { display: block; font-size: 11px; font-weight: 500; color: #f5c26b; margin-top: 4px; }
 
+  /* ── PRICE BREAKDOWN (Bake tab) ── */
+  .pb-product { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .pb-head { display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; color: var(--brown); }
+  .pb-line {
+    display: flex; justify-content: space-between; margin-top: 4px;
+    font-size: 13px; color: var(--muted); padding-left: 26px;
+  }
+  .pb-line.warn { color: #b7791f; }
+  .pb-total {
+    display: flex; justify-content: space-between; padding: 12px 16px;
+    font-size: 15px; font-weight: 700; color: var(--brown); background: var(--cream);
+  }
+  .pb-total .amt { color: var(--green); }
+  .pb-empty { padding: 20px; text-align: center; color: var(--muted); font-size: 14px; }
+
   /* ── PRODUCTION CHECK: baked vs ordered ── */
   .prod-row.ok    { background: var(--green-bg); }
   .prod-row.short { background: var(--red-bg); }
@@ -690,6 +705,9 @@
     <div class="tab" onclick="showPage('totals')" id="tab-totals" data-roles="admin baker driver">
       <span class="tab-icon">📦</span>Totals
     </div>
+    <div class="tab" onclick="showPage('production')" id="tab-production" data-roles="admin baker">
+      <span class="tab-icon">🥖</span>Bake
+    </div>
     <div class="tab" onclick="showPage('products')" id="tab-products" data-roles="admin">
       <span class="tab-icon">🧁</span>Products
     </div>
@@ -789,17 +807,6 @@
     <div class="money-grid" id="moneyGrid"></div>
   </div>
 
-  <div id="productionSection" data-roles="admin baker">
-    <div class="section-header">
-      <span class="section-title">Baked</span>
-      <span class="section-hint">Enter what was made</span>
-    </div>
-    <div class="store-breakdown">
-      <div class="prod-status" id="prodStatus"></div>
-      <div id="productionList"></div>
-    </div>
-  </div>
-
   <div class="store-breakdown">
     <div class="breakdown-title">Store Breakdown</div>
     <div id="breakdownList"></div>
@@ -809,6 +816,33 @@
     <div class="reset-text">⚠️ Clear every quantity for this date, for everyone?</div>
     <button class="reset-btn" onclick="resetOrders()">Clear date</button>
   </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     BAKE — production entry + price breakdown (admin, baker)
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-production">
+  <div class="section-header" style="padding-top:20px">
+    <span class="section-title">Baked</span>
+    <span class="section-hint" id="bakeDate"></span>
+  </div>
+  <div style="padding:0 16px 8px">
+    <div style="font-size:12px;color:var(--muted);background:var(--warm-white);
+      border:1px solid var(--border);border-radius:10px;padding:10px 14px;line-height:1.6">
+      Enter how many of each product were made. <strong style="color:var(--green)">Green</strong> = enough for
+      all orders, <strong style="color:var(--red)">red</strong> = short.
+    </div>
+  </div>
+  <div class="store-breakdown" id="productionSection">
+    <div class="prod-status" id="prodStatus"></div>
+    <div id="productionList"></div>
+  </div>
+
+  <div class="section-header">
+    <span class="section-title">Price Breakdown</span>
+    <span class="section-hint">inc. GST</span>
+  </div>
+  <div class="store-breakdown" id="priceBreakdown"></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════
@@ -1194,8 +1228,8 @@ let payments = {};    // storeId -> 'cash' | 'online' | 'unpaid' (currentDate)
 let stopAmounts = {}; // storeId -> amount (currentDate)
 // Admin + baker
 let production = {};  // pid -> qty baked (currentDate)
-// Baker gets value per product from the server (admin works it out locally)
-let productAmounts = {};  // pid -> { qty, amount, unpriced } (currentDate)
+// Baker gets the price breakdown from the server (admin works it out locally)
+let productBreakdown = {};  // pid -> [{ price, qty, amount }] (currentDate; price null = no price)
 
 function clearDayData() {
   orders = {};
@@ -1203,7 +1237,7 @@ function clearDayData() {
   payments = {};
   stopAmounts = {};
   production = {};
-  productAmounts = {};
+  productBreakdown = {};
 }
 
 const PAY_MODES = { cash: '💵 Cash', online: '📱 Online', unpaid: '🕒 Unpaid' };
@@ -1211,8 +1245,8 @@ const money = n => (Number(n) || 0).toLocaleString('en-AU', { style: 'currency',
 
 // What each role sees and may do (the database enforces the same rules)
 const ROLE_TABS = {
-  admin:  ['orders', 'route', 'totals', 'products', 'stores'],
-  baker:  ['totals', 'orders', 'route'],  // first = start page
+  admin:  ['orders', 'route', 'totals', 'production', 'products', 'stores'],
+  baker:  ['production', 'orders', 'route', 'totals'],  // first = start page
   driver: ['route', 'totals'],
 };
 const validRole = r => (typeof r === 'string' && Object.hasOwn(ROLE_TABS, r) ? r : null);
@@ -1224,19 +1258,28 @@ const can = {
   seeProductAmounts: () => profile.role === 'admin' || profile.role === 'baker',
 };
 
-// Value of one product's orders on currentDate (each store at its own price)
-function productAmount(pid) {
-  if (!can.seeMoney()) return productAmounts[pid]?.amount || 0;
-  return Object.entries(orders).reduce((sum, [storeId, o]) =>
-    sum + sanitizeQty(o?.[pid]) * (Number(unitPrice(storeId, pid)) || 0), 0);
+// One product's orders on currentDate grouped by unit price (a store's special
+// price gets its own line), highest price first; price null = no price set
+function priceBreakdown(pid) {
+  if (!can.seeMoney()) return productBreakdown[pid] || [];
+  const byPrice = new Map();
+  Object.entries(orders).forEach(([storeId, o]) => {
+    const qty = sanitizeQty(o?.[pid]);
+    if (!qty) return;
+    const p = unitPrice(storeId, pid);
+    const price = p == null ? null : Number(p);
+    const line = byPrice.get(price) || { price, qty: 0, amount: 0 };
+    line.qty += qty;
+    line.amount += qty * (price || 0);
+    byPrice.set(price, line);
+  });
+  return [...byPrice.values()].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
 }
 
-// Order lines of a product that have no price (counted as $0)
-function unpricedLines(pid) {
-  if (!can.seeMoney()) return productAmounts[pid]?.unpriced || 0;
-  return Object.entries(orders).filter(([storeId, o]) =>
-    sanitizeQty(o?.[pid]) > 0 && unitPrice(storeId, pid) == null).length;
-}
+// Value of one product's orders (each store at its own price)
+const productAmount = pid => priceBreakdown(pid).reduce((sum, l) => sum + l.amount, 0);
+// Items of a product with no price (counted as $0)
+const unpricedItems = pid => priceBreakdown(pid).filter(l => l.price == null).reduce((n, l) => n + l.qty, 0);
 
 function effectivePrice(storeId, pid) {
   return PRICES.special[storeId]?.[pid] ?? PRICES.normal[pid] ?? null;
@@ -1884,18 +1927,19 @@ function updateTotalsPage() {
     if (el) el.textContent = sums[p.id];
     const value = showValue ? productAmount(p.id) : 0;
     totalValue += value;
-    unpriced += showValue ? unpricedLines(p.id) : 0;
+    unpriced += showValue ? unpricedItems(p.id) : 0;
     const amt = document.getElementById(`totamt-${p.id}`);
     if (amt) amt.textContent = showValue && sums[p.id] ? money(value) : '';
   });
   document.getElementById('tot-total').textContent = grand;
   document.getElementById('tot-amount').innerHTML = showValue && grand
     ? `${money(totalValue)} total value${unpriced
-      ? `<span class="warn">⚠️ ${unpriced} order line${unpriced > 1 ? 's have' : ' has'} no price (counted as $0)</span>` : ''}`
+      ? `<span class="warn">⚠️ ${unpriced} item${unpriced > 1 ? 's' : ''} without a price (counted as $0)</span>` : ''}`
     : '';
   document.getElementById('tot-stores').textContent = stops.length;
   renderMoney(stops);
   renderProduction(sums);
+  renderPriceBreakdown(sums);
 
   const bl = document.getElementById('breakdownList');
   if (!stops.length) {
@@ -1917,6 +1961,31 @@ function updateTotalsPage() {
         ? `<span class="pay-badge">${PAY_MODES[payments[s.id]]}</span>` : ''}</div>
     </div>`;
   }).join('');
+}
+
+// Bake tab: per product, "qty × price = amount" for each price, then totals
+function renderPriceBreakdown(sums) {
+  const box = document.getElementById('priceBreakdown');
+  document.getElementById('bakeDate').textContent = formatDeliveryDate(deliveryDate());
+  if (!can.seeProductAmounts()) { box.innerHTML = ''; return; }
+  const items = PRODUCTS.filter(p => sums[p.id] > 0);
+  if (!items.length) {
+    box.innerHTML = '<div class="pb-empty">No orders for this date</div>';
+    return;
+  }
+  let totalQty = 0, totalAmount = 0;
+  box.innerHTML = items.map(p => {
+    const lines = priceBreakdown(p.id);
+    const amount = lines.reduce((s, l) => s + l.amount, 0);
+    totalQty += sums[p.id];
+    totalAmount += amount;
+    return `<div class="pb-product" id="pb-${p.id}">
+      <div class="pb-head"><span>${safeText(p.icon)} ${safeText(p.name)}</span><span>${money(amount)}</span></div>
+      ${lines.map(l => l.price == null
+        ? `<div class="pb-line warn"><span>${l.qty} × no price set</span><span>${money(0)}</span></div>`
+        : `<div class="pb-line"><span>${l.qty} × ${money(l.price)}</span><span>${money(l.amount)}</span></div>`).join('')}
+    </div>`;
+  }).join('') + `<div class="pb-total"><span>Total · ${totalQty} items</span><span class="amt" id="pb-total">${money(totalAmount)}</span></div>`;
 }
 
 const moneyCard = (label, amount, cls = '') =>
@@ -2026,7 +2095,7 @@ function showPage(name) {
   document.getElementById(`page-${name}`).classList.add('active');
   document.getElementById(`tab-${name}`).classList.add('active');
   if (name === 'route')  updateRoutePage();
-  if (name === 'totals') updateTotalsPage();
+  if (name === 'totals' || name === 'production') updateTotalsPage();
   if (name === 'products') buildProductsPage();
   if (name === 'stores') buildStoresPage();
 }
@@ -2702,6 +2771,27 @@ async function loadPrices() {
   });
 }
 
+// The money functions are extras: if one is missing (database script not yet
+// re-run) the app still loads, with a hint instead of a blank screen
+let _schemaHintShown = false;
+function optionalRpc(res) {
+  if (!res.error) return res;
+  console.warn('Supabase function unavailable:', res.error.message);
+  if (!_schemaHintShown) {
+    _schemaHintShown = true;
+    showToast('⚠️ Some totals are unavailable. Re-run supabase/schema.sql.');
+  }
+  return { data: [], error: null };
+}
+
+function setBreakdown(rows) {
+  productBreakdown = {};
+  rows.forEach(r => (productBreakdown[String(r.product_id)] ||= []).push({
+    price: r.unit_price == null ? null : Number(r.unit_price), qty: Number(r.qty), amount: Number(r.amount),
+  }));
+  Object.values(productBreakdown).forEach(l => l.sort((a, b) => (b.price ?? -1) - (a.price ?? -1)));
+}
+
 // Returns false if the date changed while loading (result discarded)
 // Each role gets only what the database rules allow (others come back empty)
 async function loadDay() {
@@ -2711,21 +2801,20 @@ async function loadDay() {
     sb.from('order_item_prices').select('store_id,product_id,unit_price').eq('delivery_date', date),
     sb.from('deliveries').select('store_id,payment_mode').eq('delivery_date', date),
     sb.from('production').select('product_id,qty_baked').eq('production_date', date),
-    sb.rpc('stop_amounts', { p_date: date }),
-    sb.rpc('product_amounts', { p_date: date }),
+    sb.rpc('stop_amounts', { p_date: date }).then(optionalRpc),
+    sb.rpc('product_price_breakdown', { p_date: date }).then(optionalRpc),
   ]);
   const failed = results.find(r => r.error);
   if (failed) throw failed.error;
   if (date !== currentDate) return false;
-  const [items, lines, pays, baked, amounts, perProduct] = results.map(r => r.data || []);
+  const [items, lines, pays, baked, amounts, breakdown] = results.map(r => r.data || []);
   clearDayData();
   items.forEach(r => applyQty(r.store_id, String(r.product_id), r.qty));
   lines.forEach(r => linePrices[`${r.store_id}|${r.product_id}`] = r.unit_price == null ? null : Number(r.unit_price));
   pays.forEach(r => { if (r.payment_mode) payments[r.store_id] = r.payment_mode; });
   baked.forEach(r => production[String(r.product_id)] = r.qty_baked);
   amounts.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
-  perProduct.forEach(r => productAmounts[String(r.product_id)] =
-    { qty: Number(r.qty), amount: Number(r.amount), unpriced: Number(r.unpriced) });
+  setBreakdown(breakdown);
   // Edits not yet saved stay on screen
   pending.forEach(p => { if (p.date === date) applyQty(p.storeId, p.productId, p.qty); });
   return true;
@@ -2804,7 +2893,7 @@ function saveCache() {
   if (!currentUser || !dataLoaded) return;
   store.set(CACHE_KEY, JSON.stringify({
     userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES,
-    date: currentDate, orders, linePrices, payments, stopAmounts, production, productAmounts,
+    date: currentDate, orders, linePrices, payments, stopAmounts, production, productBreakdown,
   }));
 }
 
@@ -2823,7 +2912,7 @@ function loadCache() {
       linePrices = { ...c.linePrices };
       payments = { ...c.payments };
       stopAmounts = { ...c.stopAmounts };
-      productAmounts = { ...c.productAmounts };
+      productBreakdown = { ...c.productBreakdown };
       production = { ...c.production };
     }
   } catch (_) {}
@@ -2998,16 +3087,14 @@ function scheduleAmountsRefresh() {
 // gets what it may see, the rest comes back empty
 async function refreshServerAmounts() {
   const date = currentDate;
-  const [stops, perProduct] = await Promise.all([
-    sb.rpc('stop_amounts', { p_date: date }),
-    sb.rpc('product_amounts', { p_date: date }),
+  const [stops, breakdown] = await Promise.all([
+    sb.rpc('stop_amounts', { p_date: date }).then(optionalRpc),
+    sb.rpc('product_price_breakdown', { p_date: date }).then(optionalRpc),
   ]);
-  if (stops.error || perProduct.error || date !== currentDate) return;
+  if (date !== currentDate) return;
   stopAmounts = {};
   stops.data.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
-  productAmounts = {};
-  perProduct.data.forEach(r => productAmounts[String(r.product_id)] =
-    { qty: Number(r.qty), amount: Number(r.amount), unpriced: Number(r.unpriced) });
+  setBreakdown(breakdown.data);
   updateRoutePage();
   updateTotalsPage();
   saveCache();
