@@ -643,7 +643,7 @@
 <!-- LOGIN (each person has their own account, created by the owner in Supabase) -->
 <div id="loginScreen" class="login" hidden>
   <form class="login-card" onsubmit="event.preventDefault(); signIn();">
-    <img data-logo alt="GJ 06" class="login-logo">
+    <img data-logo alt="GJ06" class="login-logo">
     <div class="login-title">Sign in</div>
     <div id="loginFields" style="display:contents">
       <input id="loginEmail" type="email" autocomplete="username" placeholder="Email" aria-label="Email" required>
@@ -683,7 +683,7 @@
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand">
-      <img data-logo alt="GJ 06" style="height:36px;width:auto;object-fit:contain;background:#fff;border-radius:8px;padding:3px 8px;">
+      <img data-logo alt="GJ06" style="height:36px;width:auto;object-fit:contain;background:#fff;border-radius:8px;padding:3px 8px;">
     </div>
     <div class="topbar-right">
       <div class="date-ctrl">
@@ -1170,8 +1170,8 @@ function sortedStores() {
 // Each store is on one route. Stops are numbered per route; the saved
 // delivery order is "route 1's stops, then route 2's".
 const ROUTES = {
-  1: { label: 'Route 1', days: 'Mon · Wed · Fri', weekdays: [1, 3, 5] },
-  2: { label: 'Route 2', days: 'Tue · Thu · Sat', weekdays: [2, 4, 6] },
+  1: { label: 'MWF_Route', days: 'Mon · Wed · Fri', weekdays: [1, 3, 5] },
+  2: { label: 'TTS_Route', days: 'Tue · Thu · Sat', weekdays: [2, 4, 6] },
 };
 const routeOf = s => (s.route === 2 ? 2 : 1);
 const routeStores = r => sortedStores().filter(s => routeOf(s) === r);
@@ -1808,7 +1808,18 @@ function savePDF() {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.text('GJ 06 — Delivery Order', margin + 4, y + 9);
+  const title = 'GJ06 — Delivery Order';
+  doc.text(title, margin + 4, y + 9);
+  const titleW = doc.getTextWidth(title);
+  // Route name next to the title, from the stops on this PDF
+  const routes = [...new Set(stops.map(routeOf))].sort();
+  const routeLabel = routes.length === 1
+    ? `${ROUTES[routes[0]].label} (${ROUTES[routes[0]].days})`
+    : routes.map(r => ROUTES[r].label).join(' + ');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(200, 200, 200);
+  doc.text(`·  ${routeLabel}`, margin + 4 + titleW + 3, y + 9);
   y += 14;
 
   // Date
