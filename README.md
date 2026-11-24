@@ -39,7 +39,10 @@ page (`index.html`). Data is shared between devices through Supabase.
    These two values are meant to be public. Access is protected by the
    database rules in `schema.sql` plus each person's login. **Never** put the
    `service_role` / secret key in this file.
-7. **Moving from the old version:** sign in as an admin on the device that
+7. **Business details for invoices:** run `business_details.sql` (kept next
+   to this folder, **not** in this public repository, because it holds your
+   bank details) in the SQL Editor. Re-run it after changing any detail.
+8. **Moving from the old version:** sign in as an admin on the device that
    has the correct stores/products. The Orders page offers a one-time
    **Upload to shared data**.
 
@@ -51,7 +54,8 @@ old `staff` role become `driver`) and keeps all data.
 
 | | admin | baker | driver |
 |---|:---:|:---:|:---:|
-| See order quantities, route, Copy Table, Save PDF | ✓ | ✓ | ✓ |
+| See order quantities, route, Save PDF | ✓ | ✓ | ✓ |
+| Print invoices (Route tab) | ✓ | ✓ | ✓ |
 | Enter / change order quantities | ✓ | | |
 | Record what was baked (**Bake** tab) | ✓ | ✓ | |
 | Store invoices: each store's products, prices and total, plus the day total (**Bake** tab) | ✓ | ✓ | |
@@ -75,7 +79,7 @@ names. Every change records who made it (`updated_by`).
 
 ## Prices
 
-- Set a product's **normal price** (inc. GST) in Products. Give a store a
+- All products are **GST-free**. Set a product's **normal price** in Products. Give a store a
   **special price** in Stores → edit store; leave it blank to use the normal
   price.
 - Each order line keeps the price it was entered at. When you change a price,
@@ -83,7 +87,7 @@ names. Every change records who made it (`updated_by`).
   price**. "Today" uses Sydney time (in `reprice_open_orders()` in
   `schema.sql`).
 - Totals warns if any order line has no price (counted as $0).
-- The WhatsApp table and the PDF never show prices.
+- The delivery PDF (Save PDF) never shows prices.
 - **Bake → Store Invoices** lists every store that ordered, in delivery
   order, with one line per product: `qty × product @ price = amount`
   (using that store's special price if it has one). Each store shows its
@@ -91,6 +95,26 @@ names. Every change records who made it (`updated_by`).
   flagged and counted as $0. The baker sees this for invoicing; payment
   modes and the price lists stay admin-only. Totals still shows the value per
   product on the product cards.
+
+## Invoices
+
+**Route → 🖨 Print invoices** prints one **A4 invoice per store** with orders
+on the selected date, in delivery order, as one print job. Pick a printer,
+or **Save as PDF** in the print dialog.
+
+- **Invoice number** = delivery date + store number: 25 Nov 2026 for store #3
+  is `261125-003`. It's unique per store and day, and a reprint gets the same
+  number.
+- **Your details** (name, address, phone, ABN, bank) come from the database
+  (see setup step 7). The logo is `gj06-logo.png`; replace that file to change
+  it.
+- **Billed To** uses the store's contact name, name, address, phone and ABN.
+  Fill these in at Stores → edit store. An ABN must be 11 digits.
+- **Tax** prints as "Tax (GST-free) $0.00", and the due date is **C.O.D.**
+- **Total paid / Balance due:** for an admin, a stop marked Cash or Online on
+  the Route tab prints as paid. Bakers and drivers can't see payments, so their
+  copies show the full amount as due.
+- If any line has no price, the app asks before printing (it prints as $0.00).
 
 ## Production check
 

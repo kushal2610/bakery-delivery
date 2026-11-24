@@ -1,0 +1,14 @@
+{
+  "name": "bakery-delivery-tests",
+  "private": true,
+  "type": "module",
+  "description": "Tests for the database rules (supabase/schema.sql) and the app (index.html). Test data only.",
+  "scripts": {
+    "test:db": "node db.test.mjs",
+    "test:app": "node e2e/run.mjs",
+    "test": "node db.test.mjs && node e2e/run.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.7"
+  }
+}
