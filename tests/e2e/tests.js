@@ -146,6 +146,30 @@ window.runTests = async function () {
     ok('empty business details: clear message, nothing printed', printCalls === 1 && /Business details are empty/.test(toast()), toast());
     M.db.business_settings[0].business_name = 'Test Bakery (Example)';
 
+    // ── delivery charges: fuel levy on every delivery, freight under a threshold
+    const setCharges = async (fuel_levy, freight_fee, freight_under) => {
+      Object.assign(M.db.business_settings[0], { fuel_levy, freight_fee, freight_under });
+      await refreshCatalog();
+    };
+    ok('charges off: invoice has no charge rows', storeAmount(7) === 5 && deliveryCharges(7).length === 0);
+    await setCharges(2, 5, 30);
+    await printInvoices();
+    const c3 = invoiceFor('Hamara Gaadi (Kellyville)'), c7 = invoiceFor('Uma Mart');
+    ok('$5 order (under $30): sub-total, freight $5, fuel levy $2, balance $12',
+      invSum(c7, 'Sub-total') === '$5.00' && invSum(c7, 'Freight') === '$5.00' && invSum(c7, 'Fuel levy') === '$2.00' && invSum(c7, 'Balance due') === '$12.00',
+      [...c7.querySelectorAll('.inv-sums .row')].map(text));
+    ok('$30 order (not under $30): no freight, fuel levy only; cash paid covers it',
+      !invSum(c3, 'Freight') && invSum(c3, 'Fuel levy') === '$2.00' && invSum(c3, 'Total paid (cash)') === '$32.00' && invSum(c3, 'Balance due') === '$0.00',
+      [...c3.querySelectorAll('.inv-sums .row')].map(text));
+    ok('footer balance includes the charges', lines(c7.querySelector('.inv-foot'))[2] === 'Balance due: $12.00');
+    afterPrint();
+    ok('stop amounts include the charges; no charges for a store with no order', storeAmount(7) === 12 && storeAmount(3) === 32 && storeAmount(1) === 0, [storeAmount(7), storeAmount(3), storeAmount(1)]);
+    renderPriceBreakdown();
+    ok('Bake tab: charges listed under the store, in its total', /Freight ?\$5\.00 ?Fuel levy ?\$2\.00/.test(text($('pb-7'))) && text($('pb-7').querySelector('.pb-store-total')) === '$12.00', text($('pb-7')));
+    await setCharges(0, 5, 50);
+    ok('fuel levy off (0): freight only', JSON.stringify(deliveryCharges(7)) === JSON.stringify([{ label: 'Freight', amount: 5 }]));
+    await setCharges(0, 0, 0);
+
     // ── routes still work
     showPage('stores');
     openEditStore(4); pickFormRoute(2); await saveStore();
@@ -173,6 +197,14 @@ window.runTests = async function () {
     const d7 = invoiceFor('Uma Mart');
     ok('driver prints invoices with store prices', invoices().length === 4 && JSON.stringify(invRows(d7)) === JSON.stringify(['6 Pack | 2 | $2.50 | $5.00']), invoices().length);
     afterPrint();
+    Object.assign(M.db.business_settings[0], { fuel_levy: 2, freight_fee: 5, freight_under: 50 });
+    await refreshCatalog();
+    showPage('route');
+    ok('driver: amount to collect includes freight + fuel levy', storeAmount(7) === 12
+      && [...document.querySelectorAll('#page-route .stop-amount')].map(text).includes('$12.00'),
+      [...document.querySelectorAll('#page-route .stop-amount')].map(text));
+    Object.assign(M.db.business_settings[0], { fuel_levy: 0, freight_fee: 0, freight_under: 0 });
+    await refreshCatalog();
     ok('driver: still no price list or payments', !Object.keys(PRICES.normal).length && !Object.keys(payments).length);
 
     // ════ NO ROLE ══════════════════════════════════════════════════════

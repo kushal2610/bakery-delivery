@@ -627,14 +627,17 @@
     body.printing-invoices > *:not(#printArea) { display: none !important; }
     body.printing-invoices #printArea { display: block; }
   }
+  /* No fixed page height: iPhone Safari adds its own margins (with the web
+     address and page number), so a full 297 mm invoice spilled onto a second
+     page. Each invoice is as tall as its content and starts a new page. */
   .invoice {
-    width: 210mm; height: 297mm; box-sizing: border-box; overflow: hidden;
-    padding: 16mm 16mm 12mm; display: flex; flex-direction: column;
+    width: 100%; max-width: 210mm; box-sizing: border-box; margin: 0 auto;
+    padding: 14mm 14mm 10mm; display: flex; flex-direction: column;
     font-family: 'DM Sans', Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #111;
-    background: #fff; break-after: page; page-break-after: always;
+    background: #fff; break-inside: avoid; page-break-inside: avoid;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  .invoice:last-child { break-after: auto; page-break-after: auto; }
+  .invoice + .invoice { break-before: page; page-break-before: always; }
   .inv-top { display: flex; justify-content: space-between; align-items: flex-start; }
   .inv-title { font-size: 34pt; font-weight: 300; letter-spacing: 0.32em; margin-top: 8mm; }
   .inv-logo { width: 40mm; height: auto; }
@@ -660,7 +663,7 @@
   .inv-sums { width: 78mm; }
   .inv-sums .row { display: flex; justify-content: space-between; padding: 1mm 4mm; }
   .inv-sums .due { margin-top: 3mm; padding: 3mm 4mm; background: #1a1a1a; color: #fff; font-size: 13pt; font-weight: 700; }
-  .inv-thanks { margin-top: auto; text-align: center; font-size: 24pt; font-weight: 300; font-style: italic; }
+  .inv-thanks { margin-top: 16mm; text-align: center; font-size: 24pt; font-weight: 300; font-style: italic; }
   .inv-foot {
     margin-top: 6mm; padding-top: 2.5mm; border-top: 0.3mm solid #ccc;
     display: flex; justify-content: space-between; font-size: 8.5pt; color: #666;
@@ -1311,6 +1314,8 @@ let stopAmounts = {}; // storeId -> amount (currentDate)
 let production = {};  // pid -> qty baked (currentDate)
 // Baker gets the invoice lines from the server (admin works them out locally)
 let storeLines = {};  // storeId -> { pid -> { qty, price, amount } } (currentDate; price null = no price)
+// Charges added to every delivery, from business_settings (0 = off)
+let CHARGES = { fuel_levy: 0, freight_fee: 0, freight_under: 0 };
 
 function clearDayData() {
   orders = {};
@@ -1369,10 +1374,27 @@ function unitPrice(storeId, pid) {
   return k in linePrices ? linePrices[k] : effectivePrice(storeId, pid);
 }
 
-function storeAmount(storeId) {
+// Value of a store's products on currentDate (before delivery charges)
+function productsSubtotal(storeId) {
   if (!can.seeMoney()) return stopAmounts[storeId] || 0;
   return Object.entries(orders[storeId] || {})
     .reduce((sum, [pid, q]) => sum + sanitizeQty(q) * (Number(unitPrice(storeId, pid)) || 0), 0);
+}
+
+// Freight when the products come to less than the threshold, and the fuel
+// levy, on every store that has an order that day
+function deliveryCharges(storeId, subtotal = productsSubtotal(storeId)) {
+  if (!orderTotal(orders[storeId])) return [];
+  const charges = [];
+  if (CHARGES.freight_fee > 0 && subtotal < CHARGES.freight_under) charges.push({ label: 'Freight', amount: CHARGES.freight_fee });
+  if (CHARGES.fuel_levy > 0) charges.push({ label: 'Fuel levy', amount: CHARGES.fuel_levy });
+  return charges;
+}
+
+// What the store pays: products plus delivery charges
+function storeAmount(storeId) {
+  const subtotal = productsSubtotal(storeId);
+  return deliveryCharges(storeId, subtotal).reduce((sum, c) => sum + c.amount, subtotal);
 }
 
 function sanitizeQty(v) {
@@ -1738,7 +1760,9 @@ const auDate = iso => iso.split('-').reverse().join('/');  // 2026-11-16 -> 16/1
 
 function invoiceHtml(store, lines, biz, iso) {
   const no = invoiceNumber(iso, store.id);
-  const total = lines.reduce((sum, { l }) => sum + l.amount, 0);
+  const subtotal = lines.reduce((sum, { l }) => sum + l.amount, 0);
+  const charges = deliveryCharges(store.id, subtotal);
+  const total = charges.reduce((sum, c) => sum + c.amount, subtotal);
   // Only admins can see payments; everyone else prints the full amount as due
   const mode = can.seeMoney() ? payments[store.id] : null;
   const paid = mode === 'cash' || mode === 'online' ? total : 0;
@@ -1783,7 +1807,8 @@ function invoiceHtml(store, lines, biz, iso) {
         ${bank ? `<div>Bank deposit</div>${bank}<div><b>Reference:</b>${no}</div>` : ''}
       </div>
       <div class="inv-sums">
-        <div class="row"><span>Sub-total</span><span>${money(total)}</span></div>
+        <div class="row"><span>Sub-total</span><span>${money(subtotal)}</span></div>
+        ${charges.map(c => `<div class="row"><span>${c.label}</span><span>${money(c.amount)}</span></div>`).join('')}
         <div class="row"><span>Tax (GST-free)</span><span>${money(0)}</span></div>
         <div class="row"><span>Total paid${paid ? ` (${mode === 'cash' ? 'cash' : 'online'})` : ''}</span><span>${money(paid)}</span></div>
         <div class="row due"><span>Balance due</span><span>${money(due)}</span></div>
@@ -2093,7 +2118,9 @@ function renderPriceBreakdown() {
   box.innerHTML = stores.map(s => {
     const lines = PRODUCTS.map(p => ({ p, l: invoiceLine(s.id, p.id) })).filter(x => x.l);
     const qty = lines.reduce((n, x) => n + x.l.qty, 0);
-    const amount = lines.reduce((sum, x) => sum + x.l.amount, 0);
+    const subtotal = lines.reduce((sum, x) => sum + x.l.amount, 0);
+    const charges = deliveryCharges(s.id, subtotal);
+    const amount = charges.reduce((sum, c) => sum + c.amount, subtotal);
     totalQty += qty;
     totalAmount += amount;
     return `<div class="pb-store" id="pb-${s.id}">
@@ -2102,6 +2129,7 @@ function renderPriceBreakdown() {
       ${lines.map(({ p, l }) => `<div class="pb-line${l.price == null ? ' warn' : ''}">
         <span>${l.qty} × ${safeText(p.name)} <span class="at">${l.price == null ? '· no price set' : `@ ${money(l.price)}`}</span></span>
         <span>${money(l.amount)}</span></div>`).join('')}
+      ${charges.map(c => `<div class="pb-line"><span>${c.label}</span><span>${money(c.amount)}</span></div>`).join('')}
     </div>`;
   }).join('') + `<div class="pb-total"><span>Total · ${stores.length} store${stores.length > 1 ? 's' : ''} · ${totalQty} items</span>
     <span class="amt" id="pb-total">${money(totalAmount)}</span></div>`;
@@ -2885,6 +2913,19 @@ async function loadCatalog() {
   if (pr.error) throw pr.error;
   STORES = st.data.map(storeFromRow).filter(Boolean);
   PRODUCTS = pr.data.map(productFromRow).filter(Boolean);
+  await loadCharges();
+}
+
+// Optional: before schema.sql is re-run there are no charge settings (no charges)
+async function loadCharges() {
+  const { data, error } = await sb.from('business_settings').select('fuel_levy,freight_fee,freight_under').eq('id', 1).maybeSingle();
+  if (error) console.warn('Delivery charges unavailable:', error.message);
+  CHARGES = normalizeCharges(error ? null : data);
+}
+
+function normalizeCharges(c) {
+  const n = v => Math.max(0, Number(v) || 0);
+  return { fuel_levy: n(c?.fuel_levy), freight_fee: n(c?.freight_fee), freight_under: n(c?.freight_under) };
 }
 
 async function loadPrices() {
@@ -3018,7 +3059,7 @@ function renderAll() {
 function saveCache() {
   if (!currentUser || !dataLoaded) return;
   store.set(CACHE_KEY, JSON.stringify({
-    userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES,
+    userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES, charges: CHARGES,
     date: currentDate, orders, linePrices, payments, stopAmounts, production, storeLines,
   }));
 }
@@ -3031,6 +3072,7 @@ function loadCache() {
     STORES = (c.stores || []).map(storeFromRow).filter(Boolean);
     PRODUCTS = (c.products || []).map(productFromRow).filter(Boolean);
     PRICES = { normal: { ...c.prices?.normal }, special: { ...c.prices?.special } };
+    CHARGES = normalizeCharges(c.charges);
     clearDayData();
     if (c.date === currentDate && c.orders && typeof c.orders === 'object') {
       Object.entries(c.orders).forEach(([sid, o]) =>

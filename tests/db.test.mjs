@@ -158,6 +158,13 @@ for (const who of ['baker', 'driver']) {
   const r = await as(db, who, bizSet, ['Hacked']);
   ok(`${who} cannot edit business details`, !r.error && r.rows.length === 0);
 }
+{
+  const c = (await db.query(`select fuel_levy, freight_fee, freight_under from public.business_settings`)).rows[0];
+  ok('delivery charges: fuel levy off, freight $5 under $50 by default', Number(c.fuel_levy) === 0 && Number(c.freight_fee) === 5 && Number(c.freight_under) === 50, c);
+  ok('admin sets the fuel levy', !(await as(db, 'admin', `update public.business_settings set fuel_levy = 2 where id = 1`)).error);
+  ok('driver reads the delivery charges', Number((await as(db, 'driver', 'select fuel_levy from public.business_settings')).rows?.[0]?.fuel_levy) === 2);
+  ok('negative charge rejected', !!(await as(db, 'admin', `update public.business_settings set freight_fee = -1 where id = 1`)).error);
+}
 ok('no-role cannot read business details', await count('nobody', 'select * from public.business_settings') === 0);
 ok('anon cannot read business details', !!(await as(db, null, 'select * from public.business_settings')).error);
 ok('a second business row is impossible', !!(await as(db, 'admin', `insert into public.business_settings (id) values (2)`)).error

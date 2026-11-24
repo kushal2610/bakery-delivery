@@ -193,6 +193,13 @@ create table if not exists public.business_settings (
   updated_by    uuid references auth.users (id) on delete set null
 );
 insert into public.business_settings (id) values (1) on conflict (id) do nothing;
+-- Charges added to every invoice (GST-free):
+--   fuel_levy     on every delivery (0 = off)
+--   freight_fee   when the products sub-total is under freight_under (0 = off)
+alter table public.business_settings
+  add column if not exists fuel_levy     numeric(10, 2) not null default 0  check (fuel_levy >= 0),
+  add column if not exists freight_fee   numeric(10, 2) not null default 5  check (freight_fee >= 0),
+  add column if not exists freight_under numeric(10, 2) not null default 50 check (freight_under >= 0);
 
 -- What was actually baked, per day and product
 create table if not exists public.production (

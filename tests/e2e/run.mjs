@@ -119,6 +119,18 @@ const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).lengt
 report(`${pages === 4 ? 'PASS' : 'FAIL'} invoices.pdf has one A4 page per invoice (4)${pages === 4 ? '' : `  [${pages}]`}`);
 const cleared = await evaluate(`document.getElementById('printArea').innerHTML === '' && !document.body.classList.contains('printing-invoices')`);
 report(`${cleared ? 'PASS' : 'FAIL'} after printing, the app clears the invoices (afterprint)`);
+// iPhone Safari prints with its own page margins (web address, page number).
+// The invoices must still be one page each, not spill onto a second page.
+await evaluate(`(async () => {
+  const s = document.createElement('style'); s.id = 'iosMargins';
+  s.textContent = '@media print { @page { size: A4; margin: 18mm 12mm !important; } }';
+  document.head.append(s);
+  await printInvoices();
+})()`);
+const iosPdf = Buffer.from((await send('Page.printToPDF', { preferCSSPageSize: true, printBackground: true, displayHeaderFooter: true })).result.data, 'base64');
+writeFileSync(join(out, 'invoices-with-margins.pdf'), iosPdf);
+const iosPages = (iosPdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+report(`${iosPages === 4 ? 'PASS' : 'FAIL'} with iPhone-style page margins: still one page per invoice (4)${iosPages === 4 ? '' : `  [${iosPages}]`}`);
 
 console.log(`\nconsole errors: ${errors.length ? '\n  ' + errors.join('\n  ') : 'none'}`);
 console.log(`${failed ? failed + ' failed' : 'all passed'} · screenshots and invoices.pdf in ${out}`);

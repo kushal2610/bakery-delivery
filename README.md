@@ -110,6 +110,17 @@ or **Save as PDF** in the print dialog.
   it.
 - **Billed To** uses the store's contact name, name, address, phone and ABN.
   Fill these in at Stores → edit store. An ABN must be 11 digits.
+- **Delivery charges** (GST-free) are added after the sub-total, and are part
+  of each stop's amount on the Route, Totals and Bake tabs:
+  - **Freight** (`freight_fee`, default $5) when a store's products come to
+    less than `freight_under` (default $50)
+  - **Fuel levy** (`fuel_levy`, default off) on every delivery
+
+  Change them in Supabase → SQL Editor, for example to stop the fuel levy:
+  `update public.business_settings set fuel_levy = 0 where id = 1;`
+  (0 turns a charge off). The app picks up the change when it's next opened.
+  Charges use the current setting, so reprinting an old day uses today's
+  charges.
 - **Tax** prints as "Tax (GST-free) $0.00", and the due date is **C.O.D.**
 - **Total paid / Balance due:** for an admin, a stop marked Cash or Online on
   the Route tab prints as paid. Bakers and drivers can't see payments, so their

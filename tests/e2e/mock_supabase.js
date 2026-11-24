@@ -27,6 +27,7 @@
     business_settings: [{
       id: 1, business_name: 'Test Bakery (Example)', address: '1 Example St, Testville NSW 2000', phone: '0400 000 000',
       abn: '11 111 111 111', bank_name: 'Example Bank', account_name: 'Test Bakery', bsb: '000-000', account_no: '12345678',
+      fuel_levy: 0, freight_fee: 0, freight_under: 0,
     }],
     profiles: [
       { id: 'u-admin', full_name: 'Owner', role: 'admin' },
