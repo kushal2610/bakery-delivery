@@ -619,56 +619,6 @@
   .prod-status.ok    { color: var(--green); background: var(--green-bg); }
   .prod-status.short { color: var(--red);   background: var(--red-bg); }
 
-  /* ── PRINTED INVOICES (A4, one page per store) ── */
-  #printArea { display: none; }
-  @media print {
-    @page { size: A4; margin: 0; }
-    body.printing-invoices { background: #fff; }
-    body.printing-invoices > *:not(#printArea) { display: none !important; }
-    body.printing-invoices #printArea { display: block; }
-  }
-  /* No fixed page height: iPhone Safari adds its own margins (with the web
-     address and page number), so a full 297 mm invoice spilled onto a second
-     page. Each invoice is as tall as its content and starts a new page. */
-  .invoice {
-    width: 100%; max-width: 210mm; box-sizing: border-box; margin: 0 auto;
-    padding: 14mm 14mm 10mm; display: flex; flex-direction: column;
-    font-family: 'DM Sans', Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #111;
-    background: #fff; break-inside: avoid; page-break-inside: avoid;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
-  }
-  .invoice + .invoice { break-before: page; page-break-before: always; }
-  .inv-top { display: flex; justify-content: space-between; align-items: flex-start; }
-  .inv-title { font-size: 34pt; font-weight: 300; letter-spacing: 0.32em; margin-top: 8mm; }
-  .inv-logo { width: 40mm; height: auto; }
-  .inv-parties { display: flex; justify-content: space-between; gap: 12mm; margin-top: 4mm; }
-  .inv-parties .name { font-size: 13pt; font-weight: 700; margin-bottom: 1mm; }
-  .inv-to { text-align: right; }
-  .inv-meta { display: flex; margin-top: 7mm; border: 0.3mm solid #ccc; }
-  .inv-meta > div { flex: 1; padding: 2.5mm 4mm; border-left: 0.3mm solid #ccc; }
-  .inv-meta > div:first-child { border-left: none; }
-  .inv-meta span { display: block; font-size: 8pt; color: #666; text-transform: uppercase; letter-spacing: 0.06em; }
-  .inv-meta strong { font-size: 11.5pt; }
-  .inv-table { width: 100%; border-collapse: collapse; border-spacing: 0; margin-top: 7mm; }
-  .inv-table th, .inv-table td { border: none; }
-  .inv-table th { background: #1a1a1a; color: #fff; text-align: left; padding: 3mm 4mm; font-weight: 700; }
-  .inv-table td { padding: 3mm 4mm; }
-  .inv-table tbody tr:nth-child(even) td { background: #ececec; }
-  .inv-table .c { text-align: center; }
-  .inv-table .r { text-align: right; }
-  .inv-table .warn { color: #b7791f; font-size: 9pt; }
-  .inv-bottom { display: flex; justify-content: space-between; gap: 12mm; margin-top: 9mm; }
-  .inv-pay .h { font-size: 12.5pt; font-weight: 700; margin-bottom: 1mm; }
-  .inv-pay b { display: inline-block; min-width: 25mm; }
-  .inv-sums { width: 78mm; }
-  .inv-sums .row { display: flex; justify-content: space-between; padding: 1mm 4mm; }
-  .inv-sums .due { margin-top: 3mm; padding: 3mm 4mm; background: #1a1a1a; color: #fff; font-size: 13pt; font-weight: 700; }
-  .inv-thanks { margin-top: 16mm; text-align: center; font-size: 24pt; font-weight: 300; font-style: italic; }
-  .inv-foot {
-    margin-top: 6mm; padding-top: 2.5mm; border-top: 0.3mm solid #ccc;
-    display: flex; justify-content: space-between; font-size: 8.5pt; color: #666;
-  }
-
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
@@ -772,8 +722,6 @@
   </div>
 </div>
 
-<!-- PRINTED INVOICES: filled just before printing, otherwise empty and hidden -->
-<div id="printArea"></div>
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
@@ -1758,7 +1706,8 @@ function invoiceNumber(iso, storeId) {
 
 const auDate = iso => iso.split('-').reverse().join('/');  // 2026-11-16 -> 16/11/2026
 
-function invoiceHtml(store, lines, biz, iso) {
+// Everything printed on one store's invoice (amounts as numbers)
+function invoiceData(store, lines, biz, iso) {
   const no = invoiceNumber(iso, store.id);
   const subtotal = lines.reduce((sum, { l }) => sum + l.amount, 0);
   const charges = deliveryCharges(store.id, subtotal);
@@ -1766,65 +1715,166 @@ function invoiceHtml(store, lines, biz, iso) {
   // Only admins can see payments; everyone else prints the full amount as due
   const mode = can.seeMoney() ? payments[store.id] : null;
   const paid = mode === 'cash' || mode === 'online' ? total : 0;
-  const due = total - paid;
-  const t = safeText;
-  const opt = (label, v) => (v ? `<div>${label}${t(v)}</div>` : '');
-  const bank = [['Bank:', biz.bank_name], ['Name:', biz.account_name], ['BSB:', biz.bsb], ['Account:', biz.account_no]]
-    .filter(([, v]) => v).map(([k, v]) => `<div><b>${k}</b>${t(v)}</div>`).join('');
-  return `<section class="invoice">
-    <div class="inv-top">
-      <div class="inv-title">INVOICE</div>
-      <img class="inv-logo" src="${LOGO_URL}" alt="">
-    </div>
-    <div class="inv-parties">
-      <div class="inv-from">
-        <div class="name">${t(biz.business_name)}</div>
-        ${opt('', biz.address)}${opt('Phone: ', biz.phone)}${opt('ABN: ', biz.abn)}
-      </div>
-      <div class="inv-to">
-        <div class="name">Billed To</div>
-        ${opt('', store.contact_name)}<div>${t(store.name)}</div>
-        ${opt('', store.address || store.area)}${opt('Phone: ', store.phone)}${opt('ABN: ', store.abn)}
-      </div>
-    </div>
-    <div class="inv-meta">
-      <div><span>Invoice no</span><strong>${no}</strong></div>
-      <div><span>Issue date</span><strong>${auDate(iso)}</strong></div>
-      <div><span>Due date</span><strong>C.O.D.</strong></div>
-    </div>
-    <table class="inv-table">
-      <thead><tr><th>Description</th><th class="c">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead>
-      <tbody>${lines.map(({ p, l }) => `<tr>
-        <td>${t(p.name)}${l.price == null ? ' <span class="warn">(no price set)</span>' : ''}</td>
-        <td class="c">${l.qty}</td>
-        <td class="r">${l.price == null ? '–' : money(l.price)}</td>
-        <td class="r">${money(l.amount)}</td></tr>`).join('')}
-      </tbody>
-    </table>
-    <div class="inv-bottom">
-      <div class="inv-pay">
-        <div class="h">How to pay</div>
-        ${bank ? `<div>Bank deposit</div>${bank}<div><b>Reference:</b>${no}</div>` : ''}
-      </div>
-      <div class="inv-sums">
-        <div class="row"><span>Sub-total</span><span>${money(subtotal)}</span></div>
-        ${charges.map(c => `<div class="row"><span>${c.label}</span><span>${money(c.amount)}</span></div>`).join('')}
-        <div class="row"><span>Tax (GST-free)</span><span>${money(0)}</span></div>
-        <div class="row"><span>Total paid${paid ? ` (${mode === 'cash' ? 'cash' : 'online'})` : ''}</span><span>${money(paid)}</span></div>
-        <div class="row due"><span>Balance due</span><span>${money(due)}</span></div>
-      </div>
-    </div>
-    <div class="inv-thanks">Thank You</div>
-    <div class="inv-foot">
-      <span>Invoice no: ${no}</span><span>Due date: C.O.D.</span><span>Balance due: ${money(due)}</span>
-    </div>
-  </section>`;
+  const has = (label, v) => (v ? `${label}${v}` : '');
+  return {
+    no,
+    date: auDate(iso),
+    from: { name: biz.business_name, lines: [biz.address, has('Phone: ', biz.phone), has('ABN: ', biz.abn)].filter(Boolean) },
+    to: [store.contact_name, store.name, store.address || store.area, has('Phone: ', store.phone), has('ABN: ', store.abn)].filter(Boolean),
+    rows: lines.map(({ p, l }) => ({ name: p.name, unpriced: l.price == null, qty: l.qty, price: l.price, amount: l.amount })),
+    sums: [
+      ['Sub-total', subtotal],
+      ...charges.map(c => [c.label, c.amount]),
+      ['Tax (GST-free)', 0],
+      [paid ? `Total paid (${mode})` : 'Total paid', paid],
+    ],
+    due: total - paid,
+    bank: [['Bank:', biz.bank_name], ['Name:', biz.account_name], ['BSB:', biz.bsb], ['Account:', biz.account_no]].filter(([, v]) => v),
+  };
+}
+
+// The logo file as a data URL for the PDF (null if it can't be loaded)
+async function logoDataUrl() {
+  try {
+    const res = await fetch(LOGO_URL);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  } catch (_) { return null; }
+}
+
+// One A4 page (mm). Standard PDF fonts only cover Western characters.
+function drawInvoice(doc, inv, logo) {
+  const L = 16, R = 194, W = R - L;
+  const ink = () => doc.setTextColor(17, 17, 17);
+  const font = (style, size) => { doc.setFont('helvetica', style); doc.setFontSize(size); };
+  const pdfText = s => String(s ?? '').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+  const fit = (s, w) => doc.splitTextToSize(pdfText(s), w)[0] || '';
+
+  // Title + logo
+  ink(); font('normal', 30);
+  doc.text('INVOICE', L, 34, { charSpace: 3 });
+  if (logo) { try { doc.addImage(logo, 'PNG', R - 40, 12, 40, 40 * 880 / 960, 'logo'); } catch (_) {} }
+
+  // From / Billed To
+  let yL = 62, yR = 62;
+  font('bold', 12); doc.text(fit(inv.from.name, 100), L, yL); yL += 6;
+  font('normal', 10); inv.from.lines.forEach(s => { doc.text(fit(s, 100), L, yL); yL += 5; });
+  font('bold', 12); doc.text('Billed To', R, yR, { align: 'right' }); yR += 6;
+  font('normal', 10); inv.to.forEach(s => { doc.text(fit(s, 75), R, yR, { align: 'right' }); yR += 5; });
+
+  // Invoice no / issue date / due date
+  let y = Math.max(yL, yR) + 4;
+  doc.setDrawColor(204, 204, 204); doc.setLineWidth(0.3);
+  doc.rect(L, y, W, 14);
+  [['INVOICE NO', inv.no], ['ISSUE DATE', inv.date], ['DUE DATE', 'C.O.D.']].forEach(([label, value], i) => {
+    const x = L + i * W / 3;
+    if (i) doc.line(x, y, x, y + 14);
+    font('normal', 7); doc.setTextColor(102, 102, 102); doc.text(label, x + 4, y + 5, { charSpace: 0.3 });
+    font('bold', 11); ink(); doc.text(value, x + 4, y + 11);
+  });
+  y += 22;
+
+  // Lines
+  const col = { qty: 120, price: 157, total: R - 4 };
+  const header = () => {
+    doc.setFillColor(26, 26, 26); doc.rect(L, y, W, 9, 'F');
+    font('bold', 10); doc.setTextColor(255, 255, 255);
+    doc.text('Description', L + 4, y + 6);
+    doc.text('Qty', col.qty, y + 6, { align: 'center' });
+    doc.text('Price', col.price, y + 6, { align: 'right' });
+    doc.text('Total', col.total, y + 6, { align: 'right' });
+    y += 9;
+  };
+  header();
+  inv.rows.forEach((row, i) => {
+    if (y > 262) { doc.addPage(); y = 20; header(); }
+    if (i % 2) { doc.setFillColor(236, 236, 236); doc.rect(L, y, W, 8, 'F'); }
+    font('normal', 10); ink();
+    const name = fit(row.name, row.unpriced ? 62 : 90);
+    doc.text(name, L + 4, y + 5.5);
+    if (row.unpriced) {
+      const nameW = doc.getTextWidth(name);
+      doc.setTextColor(183, 121, 31); doc.setFontSize(8.5);
+      doc.text('(no price set)', L + 4 + nameW + 2, y + 5.5);
+      ink(); doc.setFontSize(10);
+    }
+    doc.text(String(row.qty), col.qty, y + 5.5, { align: 'center' });
+    doc.text(row.unpriced ? '-' : money(row.price), col.price, y + 5.5, { align: 'right' });
+    doc.text(money(row.amount), col.total, y + 5.5, { align: 'right' });
+    y += 8;
+  });
+
+  // How to pay + sums (moved to a new page if they don't fit)
+  const sumsH = inv.sums.length * 6 + 14;
+  const payH = inv.bank.length ? (inv.bank.length + 2) * 5 + 7 : 7;
+  if (y + 9 + Math.max(sumsH, payH) > 255) { doc.addPage(); y = 20; } else y += 9;
+  let yp = y + 4;
+  font('bold', 12.5); ink(); doc.text('How to pay', L, yp); yp += 6;
+  font('normal', 10);
+  if (inv.bank.length) {
+    doc.text('Bank deposit', L, yp); yp += 5;
+    [...inv.bank, ['Reference:', inv.no]].forEach(([k, v]) => {
+      font('bold', 10); doc.text(k, L, yp);
+      font('normal', 10); doc.text(fit(v, 60), L + 25, yp); yp += 5;
+    });
+  }
+  const sx = R - 78;
+  let ys = y + 4;
+  font('normal', 10); ink();
+  inv.sums.forEach(([label, amount]) => {
+    doc.text(label, sx + 4, ys);
+    doc.text(money(amount), R - 4, ys, { align: 'right' });
+    ys += 6;
+  });
+  doc.setFillColor(26, 26, 26); doc.rect(sx, ys - 2, 78, 11, 'F');
+  font('bold', 13); doc.setTextColor(255, 255, 255);
+  doc.text('Balance due', sx + 4, ys + 5.3);
+  doc.text(money(inv.due), R - 4, ys + 5.3, { align: 'right' });
+
+  // Thank you + footer at the bottom of the page
+  ink(); font('italic', 24);
+  doc.text('Thank You', 105, 266, { align: 'center' });
+  doc.setDrawColor(204, 204, 204); doc.line(L, 274, R, 274);
+  font('normal', 8.5); doc.setTextColor(102, 102, 102);
+  doc.text(`Invoice no: ${inv.no}`, L, 279);
+  doc.text('Due date: C.O.D.', 105, 279, { align: 'center' });
+  doc.text(`Balance due: ${money(inv.due)}`, R, 279, { align: 'right' });
+}
+
+function savePdfFile(doc, filename) { doc.save(filename); }
+
+// Phones and tablets can't print a PDF from inside the page: they save it
+const isMobileDevice = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// Computer: print the PDF from a hidden frame (prints the PDF itself, so no
+// web address or page numbers are added). Returns false if that isn't possible.
+let _printFrame = null;
+function printPdfBlob(blob) {
+  _printFrame?.remove();
+  const frame = _printFrame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  frame.src = URL.createObjectURL(blob);
+  return new Promise(resolve => {
+    frame.onload = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); resolve(true); } catch (_) { resolve(false); }
+    };
+    document.body.append(frame);
+  });
 }
 
 // Route tab: one A4 invoice per store with orders on the selected date, in
-// delivery order, all in one print job (or "Save as PDF" in the print dialog)
+// delivery order, all in one PDF. A PDF (not the web page) is printed so
+// iPhone Safari doesn't add the web address, date and page numbers.
 async function printInvoices() {
   if (!currentUser || !sb) return;
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library loading, try again in a moment...'); return; }
   const btn = document.getElementById('printInvoicesBtn');
   const date = currentDate;
   btn.disabled = true;
@@ -1848,21 +1898,27 @@ async function printInvoices() {
     const unpriced = invoices.reduce((n, inv) => n + inv.lines.filter(x => x.l.price == null).length, 0);
     if (unpriced && !confirm(`${unpriced} order line${unpriced > 1 ? 's have' : ' has'} no price and will print as $0.00. Print anyway?`)) return;
 
-    const area = document.getElementById('printArea');
-    area.innerHTML = invoices.map(inv => invoiceHtml(inv.store, inv.lines, biz, date)).join('');
-    await Promise.all([...area.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
-    document.body.classList.add('printing-invoices');
-    window.print();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    doc.setProperties({ title: `Invoices ${auDate(date)}` });
+    const logo = await logoDataUrl();
+    invoices.forEach((inv, i) => {
+      if (i) doc.addPage();
+      drawInvoice(doc, invoiceData(inv.store, inv.lines, biz, date), logo);
+    });
+    const filename = `invoices-${date}.pdf`;
+    if (isMobileDevice()) {
+      savePdfFile(doc, filename);
+      showToast('📄 Invoices saved. Open the PDF, then Share → Print');
+    } else if (!(await printPdfBlob(doc.output('blob')))) {
+      savePdfFile(doc, filename);
+      showToast('📄 Invoices saved as a PDF. Open it to print');
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = '🖨 Print invoices';
   }
 }
-
-window.addEventListener('afterprint', () => {
-  document.body.classList.remove('printing-invoices');
-  document.getElementById('printArea').innerHTML = '';
-});
 
 function savePDF() {
   const stops = orderedStores();

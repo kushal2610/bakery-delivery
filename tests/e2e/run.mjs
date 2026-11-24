@@ -4,8 +4,9 @@
 //   Run:  cd tests && npm run test:app        (Chrome path: set CHROME=...)
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, dirname, extname } from 'node:path';
+import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
@@ -32,6 +33,19 @@ writeFileSync(join(out, 'unconfigured.html'),
   setConfig(mocked, 'https://YOUR-PROJECT-REF.supabase.co', 'YOUR-ANON-OR-PUBLISHABLE-KEY'));
 for (const f of ['mock_supabase.js', 'tests.js']) copyFileSync(join(here, f), join(out, f));
 copyFileSync(join(root, 'gj06-logo.png'), join(out, 'gj06-logo.png'));
+// Serve out/ over http (like the real site; file:// pages can't load the logo)
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png' };
+const server = createServer((req, res) => {
+  const name = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
+  if (!/^[\w.-]+$/.test(name)) { res.writeHead(404).end(); return; }
+  try {
+    const body = readFileSync(join(out, name));
+    res.writeHead(200, { 'Content-Type': TYPES[extname(name)] || 'application/octet-stream' }).end(body);
+  } catch { res.writeHead(404).end(); }
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const site = `http://127.0.0.1:${server.address().port}`;
+
 
 // ── drive Chrome ──
 const CHROME = process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
@@ -76,13 +90,13 @@ let failed = 0;
 const report = line => { if (!line.startsWith('PASS')) failed++; console.log(line); };
 
 // 1. Not configured yet
-await navigate(pathToFileURL(join(out, 'unconfigured.html')).href);
+await navigate(site + '/unconfigured.html');
 await sleep(1200);
 const setup = await evaluate(`[document.getElementById('loginScreen').hidden, document.getElementById('loginError').textContent, document.getElementById('loginBtn').disabled]`);
 report((setup[0] === false && /Setup needed/.test(setup[1]) && setup[2] === true ? 'PASS' : 'FAIL') + ' unconfigured: setup message, sign-in disabled');
 
 // 2. The suite
-await navigate(pathToFileURL(join(out, 'app.html')).href);
+await navigate(site + '/app.html');
 await sleep(1200);
 const results = await evaluate('runTests()');
 (Array.isArray(results) ? results : [`FAIL suite did not finish: ${JSON.stringify(results)}`]).forEach(report);
@@ -105,35 +119,48 @@ await signInAs('owner@test.com', 'route');
 await shot('route-admin.png');
 await evaluate(`(async () => { showPage('stores'); openEditStore(3); await new Promise(r => setTimeout(r, 200)); })()`);
 await shot('store-form.png');
-await evaluate(`(async () => { closeStoreModal(); window.print = () => {}; window.confirm = () => true; await printInvoices(); })()`);
-// The first page as an image (A4 at 96 dpi = 794 × 1123 px). Taken before the
-// PDF, because making a PDF fires "afterprint", which clears the invoices.
-await send('Emulation.setEmulatedMedia', { media: 'print' });
-await send('Emulation.setDeviceMetricsOverride', { width: 794, height: 1123, deviceScaleFactor: 1, mobile: false });
-await evaluate(`(async () => { window.scrollTo(0, 0); await new Promise(r => setTimeout(r, 300)); })()`);
-await shot('invoice-page1.png');
-await send('Emulation.setEmulatedMedia', { media: '' });
-const pdf = Buffer.from((await send('Page.printToPDF', { preferCSSPageSize: true, printBackground: true })).result.data, 'base64');
+// The invoices PDF exactly as the app makes it
+const pdfB64 = await evaluate(`(async () => {
+  closeStoreModal(); window.confirm = () => true;
+  Object.assign(__mock.db.business_settings[0], { fuel_levy: 2, freight_fee: 5, freight_under: 50 });
+  await refreshCatalog();
+  let b64 = null;
+  window.printPdfBlob = async blob => {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    b64 = btoa(bin);
+    return true;
+  };
+  await printInvoices();
+  return b64;
+})()`);
+const pdf = Buffer.from(pdfB64 || '', 'base64');
 writeFileSync(join(out, 'invoices.pdf'), pdf);
 const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
 report(`${pages === 4 ? 'PASS' : 'FAIL'} invoices.pdf has one A4 page per invoice (4)${pages === 4 ? '' : `  [${pages}]`}`);
-const cleared = await evaluate(`document.getElementById('printArea').innerHTML === '' && !document.body.classList.contains('printing-invoices')`);
-report(`${cleared ? 'PASS' : 'FAIL'} after printing, the app clears the invoices (afterprint)`);
-// iPhone Safari prints with its own page margins (web address, page number).
-// The invoices must still be one page each, not spill onto a second page.
-await evaluate(`(async () => {
-  const s = document.createElement('style'); s.id = 'iosMargins';
-  s.textContent = '@media print { @page { size: A4; margin: 18mm 12mm !important; } }';
-  document.head.append(s);
-  await printInvoices();
+
+// Page 1 as an image, drawn with pdf.js (needs internet; skipped if offline)
+const png = await evaluate(`(async () => {
+  try {
+    await new Promise((ok, fail) => { const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const bytes = Uint8Array.from(atob('${pdfB64 || ''}'), c => c.charCodeAt(0));
+    const page = await (await pdfjsLib.getDocument({ data: bytes }).promise).getPage(1);
+    const vp = page.getViewport({ scale: 1.5 });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    return c.toDataURL('image/png').split(',')[1];
+  } catch (e) { return null; }
 })()`);
-const iosPdf = Buffer.from((await send('Page.printToPDF', { preferCSSPageSize: true, printBackground: true, displayHeaderFooter: true })).result.data, 'base64');
-writeFileSync(join(out, 'invoices-with-margins.pdf'), iosPdf);
-const iosPages = (iosPdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
-report(`${iosPages === 4 ? 'PASS' : 'FAIL'} with iPhone-style page margins: still one page per invoice (4)${iosPages === 4 ? '' : `  [${iosPages}]`}`);
+if (png) writeFileSync(join(out, 'invoice-page1.png'), Buffer.from(png, 'base64'));
+else console.log('(invoice-page1.png skipped: pdf.js could not be loaded)');
+
 
 console.log(`\nconsole errors: ${errors.length ? '\n  ' + errors.join('\n  ') : 'none'}`);
 console.log(`${failed ? failed + ' failed' : 'all passed'} · screenshots and invoices.pdf in ${out}`);
 ws.close();
 proc.kill();
+server.close();
 process.exit(failed || errors.length ? 1 : 0);

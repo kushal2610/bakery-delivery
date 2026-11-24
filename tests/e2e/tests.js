@@ -21,17 +21,17 @@ window.runTests = async function () {
   const text = el => (el?.textContent || '').replace(/\s+/g, ' ').trim();
   const R1 = ROUTES[1].label, R2 = ROUTES[2].label;
 
-  // Printing: count print() calls instead of opening the dialog
-  let printCalls = 0;
-  window.print = () => { printCalls++; };
+  // Printing: keep the invoice PDF (uncompressed, so its text is readable)
+  // instead of opening the print dialog
+  let printCalls = 0, lastPdf = null;
+  window.printPdfBlob = async blob => { printCalls++; lastPdf = await blob.text(); return true; };
   let confirmAnswer = true;
   window.confirm = () => confirmAnswer;
-  const invoices = () => [...document.querySelectorAll('#printArea .invoice')];
-  const invoiceFor = name => invoices().find(inv => text(inv.querySelector('.inv-to')).includes(name));
-  const invRows = inv => [...inv.querySelectorAll('tbody tr')].map(tr => [...tr.children].map(td => text(td)).join(' | '));
-  const invSum = (inv, label) => text([...inv.querySelectorAll('.inv-sums .row')].find(r => text(r).startsWith(label))?.lastElementChild);
-  const lines = el => [...(el?.children || [])].map(text);
-  const afterPrint = () => window.dispatchEvent(new Event('afterprint'));
+  const pdfPages = () => (lastPdf?.match(/\/Type \/Page[^s]/g) || []).length;
+  const pdfHas = s => !!lastPdf?.includes(`(${String(s).replace(/[()\\]/g, '\\$&')})`);
+  const invData = storeId => invoiceData(STORES.find(s => s.id === storeId),
+    PRODUCTS.map(p => ({ p, l: invoiceLine(storeId, p.id) })).filter(x => x.l), M.db.business_settings[0], currentDate);
+  const invSum = (inv, label) => { const r = inv.sums.find(([l]) => l === label); return r ? money(r[1]) : ''; };
 
   async function login(email) {
     if (currentUser) await signOutNow();
@@ -111,58 +111,68 @@ window.runTests = async function () {
     ok('Route tab buttons: Save PDF and Print invoices only', JSON.stringify(btns) === JSON.stringify(['📄 Save PDF', '🖨 Print invoices']), btns);
     ok('Maps and Copy Table code removed', typeof openMaps === 'undefined' && typeof copyCleanTable === 'undefined');
 
-    // ── printing invoices
+    // ── printing invoices (a PDF, printed from a hidden frame on a computer)
     confirmAnswer = false;
     await printInvoices();
-    ok('unpriced line: asks first; "Cancel" prints nothing', printCalls === 0 && invoices().length === 0);
+    ok('unpriced line: asks first; "Cancel" prints nothing', printCalls === 0 && lastPdf === null);
     confirmAnswer = true;
     await printInvoices();
-    ok('one print job with one invoice per store with orders', printCalls === 1 && invoices().length === 4, [printCalls, invoices().length]);
-    const order = invoices().map(inv => text(inv.querySelector('.inv-meta strong')).slice(-3));
+    ok('one PDF printed with one A4 page per store with orders', printCalls === 1 && pdfPages() === 4 && /\/MediaBox \[0 0 595\.2\d* 841\.8\d*\]/.test(lastPdf), [printCalls, pdfPages()]);
+    const order = [...lastPdf.matchAll(/\((\d{6}-\d{3})\) Tj/g)].map(m => m[1].slice(-3)).filter((x, i, a) => a.indexOf(x) === i);
     ok('invoices in delivery order (stores 3, 4, 6, 7)', order.join() === '003,004,006,007', order);
-    const inv3 = invoiceFor('Hamara Gaadi (Kellyville)');
-    const no3 = `${yymmdd}-003`;
-    ok('invoice number = date + store', text(inv3.querySelector('.inv-meta')).includes(no3), text(inv3.querySelector('.inv-meta')));
-    ok('issue date DD/MM/YYYY, due C.O.D.', text(inv3.querySelector('.inv-meta')).includes(D.split('-').reverse().join('/')) && text(inv3.querySelector('.inv-meta')).includes('C.O.D.'));
-    ok('business details from the database', /Test Bakery \(Example\).*Phone: 0400 000 000.*ABN: 11 111 111 111/.test(text(inv3.querySelector('.inv-from'))), text(inv3.querySelector('.inv-from')));
-    ok('Billed To: contact, store, address, phone, ABN on separate lines', JSON.stringify(lines(inv3.querySelector('.inv-to'))) === JSON.stringify(
-      ['Billed To', 'Sam Test', 'Hamara Gaadi (Kellyville)', '3 Test St, Kellyville NSW 2000', 'Phone: 0412 345 678', 'ABN: 12 345 678 901']), lines(inv3.querySelector('.inv-to')));
-    ok('line: product, qty, price, total', JSON.stringify(invRows(inv3)) === JSON.stringify(['6 Pack | 10 | $3.00 | $30.00']), invRows(inv3));
-    ok('GST-free tax line $0.00', invSum(inv3, 'Tax (GST-free)') === '$0.00');
-    ok('paid in cash -> total paid $30, balance due $0', invSum(inv3, 'Total paid (cash)') === '$30.00' && invSum(inv3, 'Balance due') === '$0.00');
-    ok('bank details with invoice number as reference', /Bank deposit.*Example Bank.*BSB:000-000.*Account:12345678.*Reference:/.test(text(inv3.querySelector('.inv-pay'))) && text(inv3.querySelector('.inv-pay')).endsWith(no3), text(inv3.querySelector('.inv-pay')));
-    ok('footer: number, due date, balance', JSON.stringify(lines(inv3.querySelector('.inv-foot'))) === JSON.stringify([`Invoice no: ${no3}`, 'Due date: C.O.D.', 'Balance due: $0.00']), lines(inv3.querySelector('.inv-foot')));
-    const inv7 = invoiceFor('Uma Mart');
-    ok('special price on the invoice, unpaid -> balance due', JSON.stringify(invRows(inv7)) === JSON.stringify(['6 Pack | 2 | $2.50 | $5.00']) && invSum(inv7, 'Balance due') === '$5.00' && invSum(inv7, 'Total paid') === '$0.00');
-    const inv6 = invoiceFor('Anda Chowk');
-    ok('unpriced line marked, prints as $0.00', invRows(inv6)[0] === 'Usal Pav (no price set) | 1 | – | $0.00', invRows(inv6));
-    ok('logo on every invoice from gj06-logo.png', invoices().every(inv => inv.querySelector('.inv-logo').getAttribute('src') === 'gj06-logo.png'));
-    ok('while printing, only the invoices are printable', document.body.classList.contains('printing-invoices'));
-    afterPrint();
-    ok('after printing: invoices cleared, app back to normal', invoices().length === 0 && !document.body.classList.contains('printing-invoices'));
+    const inv3 = invData(3), no3 = `${yymmdd}-003`;
+    ok('invoice number = date + store; issue date DD/MM/YYYY; due C.O.D.', inv3.no === no3 && pdfHas(no3)
+      && pdfHas(D.split('-').reverse().join('/')) && pdfHas('C.O.D.'));
+    ok('business details from the database', pdfHas('Test Bakery (Example)') && pdfHas('Phone: 0400 000 000') && pdfHas('ABN: 11 111 111 111'));
+    ok('Billed To: contact, store, address, phone, ABN', JSON.stringify(inv3.to) === JSON.stringify(
+      ['Sam Test', 'Hamara Gaadi (Kellyville)', '3 Test St, Kellyville NSW 2000', 'Phone: 0412 345 678', 'ABN: 12 345 678 901'])
+      && pdfHas('Billed To') && inv3.to.every(pdfHas), inv3.to);
+    ok('line: product, qty, price, total', JSON.stringify(inv3.rows) === JSON.stringify([{ name: '6 Pack', unpriced: false, qty: 10, price: 3, amount: 30 }])
+      && pdfHas('$3.00') && pdfHas('$30.00'), inv3.rows);
+    ok('GST-free tax line $0.00', invSum(inv3, 'Tax (GST-free)') === '$0.00' && pdfHas('Tax (GST-free)'));
+    ok('paid in cash -> total paid $30, balance due $0', invSum(inv3, 'Total paid (cash)') === '$30.00' && money(inv3.due) === '$0.00' && pdfHas('Total paid (cash)'));
+    ok('bank details with invoice number as reference', ['Bank deposit', 'Example Bank', '000-000', '12345678', 'Reference:'].every(pdfHas));
+    ok('footer: number, due date, balance', pdfHas(`Invoice no: ${no3}`) && pdfHas('Due date: C.O.D.') && pdfHas('Balance due: $0.00'));
+    const inv7 = invData(7);
+    ok('special price on the invoice, unpaid -> balance due', inv7.rows[0].price === 2.5 && inv7.rows[0].amount === 5 && money(inv7.due) === '$5.00'
+      && invSum(inv7, 'Total paid') === '$0.00' && pdfHas('$2.50') && pdfHas('Balance due: $5.00'));
+    const inv6 = invData(6);
+    ok('unpriced line marked, prints as $0.00', inv6.rows[0].unpriced && inv6.rows[0].amount === 0 && pdfHas('(no price set)') && pdfHas('Usal Pav'), inv6.rows);
+    ok('logo from gj06-logo.png, embedded once for all pages', (lastPdf.match(/\/Subtype \/Image/g) || []).length === 1);
+    ok('no web page printed (nothing for the browser to add a web address to)', !document.getElementById('printArea') && typeof invoiceHtml === 'undefined');
 
     M.db.business_settings[0].business_name = '';
     await printInvoices();
     ok('empty business details: clear message, nothing printed', printCalls === 1 && /Business details are empty/.test(toast()), toast());
     M.db.business_settings[0].business_name = 'Test Bakery (Example)';
 
+    // phone or tablet: the PDF is saved (then Share → Print), not printed from the page
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' });
+    const realSave = window.savePdfFile;
+    let saved = null;
+    window.savePdfFile = (doc, name) => { saved = name; };
+    try {
+      await printInvoices();
+    } finally {
+      window.savePdfFile = realSave;
+      delete navigator.userAgent;
+    }
+    ok('iPhone: invoices saved as a PDF with a hint, not printed from the page', saved === `invoices-${D}.pdf` && printCalls === 1 && /Share → Print/.test(toast()), [saved, printCalls, toast()]);
+
     // ── delivery charges: fuel levy on every delivery, freight under a threshold
     const setCharges = async (fuel_levy, freight_fee, freight_under) => {
       Object.assign(M.db.business_settings[0], { fuel_levy, freight_fee, freight_under });
       await refreshCatalog();
     };
-    ok('charges off: invoice has no charge rows', storeAmount(7) === 5 && deliveryCharges(7).length === 0);
+    ok('charges off: invoice has no charge rows', storeAmount(7) === 5 && deliveryCharges(7).length === 0 && !pdfHas('Fuel levy'));
     await setCharges(2, 5, 30);
     await printInvoices();
-    const c3 = invoiceFor('Hamara Gaadi (Kellyville)'), c7 = invoiceFor('Uma Mart');
+    const c3 = invData(3), c7 = invData(7);
     ok('$5 order (under $30): sub-total, freight $5, fuel levy $2, balance $12',
-      invSum(c7, 'Sub-total') === '$5.00' && invSum(c7, 'Freight') === '$5.00' && invSum(c7, 'Fuel levy') === '$2.00' && invSum(c7, 'Balance due') === '$12.00',
-      [...c7.querySelectorAll('.inv-sums .row')].map(text));
+      invSum(c7, 'Sub-total') === '$5.00' && invSum(c7, 'Freight') === '$5.00' && invSum(c7, 'Fuel levy') === '$2.00' && money(c7.due) === '$12.00'
+      && pdfHas('Freight') && pdfHas('Fuel levy') && pdfHas('Balance due: $12.00'), c7.sums);
     ok('$30 order (not under $30): no freight, fuel levy only; cash paid covers it',
-      !invSum(c3, 'Freight') && invSum(c3, 'Fuel levy') === '$2.00' && invSum(c3, 'Total paid (cash)') === '$32.00' && invSum(c3, 'Balance due') === '$0.00',
-      [...c3.querySelectorAll('.inv-sums .row')].map(text));
-    ok('footer balance includes the charges', lines(c7.querySelector('.inv-foot'))[2] === 'Balance due: $12.00');
-    afterPrint();
+      !invSum(c3, 'Freight') && invSum(c3, 'Fuel levy') === '$2.00' && invSum(c3, 'Total paid (cash)') === '$32.00' && money(c3.due) === '$0.00', c3.sums);
     ok('stop amounts include the charges; no charges for a store with no order', storeAmount(7) === 12 && storeAmount(3) === 32 && storeAmount(1) === 0, [storeAmount(7), storeAmount(3), storeAmount(1)]);
     renderPriceBreakdown();
     ok('Bake tab: charges listed under the store, in its total', /Freight ?\$5\.00 ?Fuel levy ?\$2\.00/.test(text($('pb-7'))) && text($('pb-7').querySelector('.pb-store-total')) === '$12.00', text($('pb-7')));
@@ -184,19 +194,20 @@ window.runTests = async function () {
     ok('baker: no price list or payments loaded', !Object.keys(PRICES.normal).length && !Object.keys(payments).length);
     showPage('route');
     ok('baker: Print invoices button', visible($('printInvoicesBtn')));
+    lastPdf = null;
     await printInvoices();
-    const b3 = invoiceFor('Hamara Gaadi (Kellyville)');
-    ok('baker prints the same invoices; payments not visible -> full balance due', invoices().length === 4 && invSum(b3, 'Balance due') === '$30.00' && invSum(b3, 'Total paid') === '$0.00');
-    afterPrint();
+    const b3 = invData(3);
+    ok('baker prints the same invoices; payments not visible -> full balance due', pdfPages() === 4 && money(b3.due) === '$30.00'
+      && invSum(b3, 'Total paid') === '$0.00' && pdfHas('Balance due: $30.00'), [pdfPages(), b3.sums]);
 
     // ════ DRIVER ═══════════════════════════════════════════════════════
     await login('driver@test.com');
     ok('driver: tabs Route/Totals, starts on Route', visibleTabs() === 'route,totals' && activePage() === 'route');
     ok('driver: Save PDF + Print invoices', JSON.stringify([...document.querySelectorAll('#page-route .route-actions button')].map(b => text(b))) === JSON.stringify(['📄 Save PDF', '🖨 Print invoices']));
+    lastPdf = null;
     await printInvoices();
-    const d7 = invoiceFor('Uma Mart');
-    ok('driver prints invoices with store prices', invoices().length === 4 && JSON.stringify(invRows(d7)) === JSON.stringify(['6 Pack | 2 | $2.50 | $5.00']), invoices().length);
-    afterPrint();
+    const d7 = invData(7);
+    ok('driver prints invoices with store prices', pdfPages() === 4 && d7.rows[0].price === 2.5 && d7.rows[0].qty === 2 && pdfHas('$2.50'), [pdfPages(), d7.rows]);
     Object.assign(M.db.business_settings[0], { fuel_levy: 2, freight_fee: 5, freight_under: 50 });
     await refreshCatalog();
     showPage('route');

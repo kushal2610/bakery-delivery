@@ -98,9 +98,16 @@ names. Every change records who made it (`updated_by`).
 
 ## Invoices
 
-**Route → 🖨 Print invoices** prints one **A4 invoice per store** with orders
-on the selected date, in delivery order, as one print job. Pick a printer,
-or **Save as PDF** in the print dialog.
+**Route → 🖨 Print invoices** makes one PDF with an **A4 invoice per store**
+with orders on the selected date, in delivery order.
+
+- **Computer:** the print dialog opens with the PDF (if the browser can't, the
+  PDF is downloaded instead).
+- **iPhone / iPad / Android:** the PDF is saved. Open it, then **Share →
+  Print**.
+
+Printing a PDF (not the web page) means Safari doesn't add the web address,
+date and page numbers.
 
 - **Invoice number** = delivery date + store number: 25 Nov 2026 for store #3
   is `261125-003`. It's unique per store and day, and a reprint gets the same
