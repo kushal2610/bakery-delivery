@@ -16,7 +16,7 @@
   const db = {
     stores: STORES.map((s, i) => {
       const [name, area] = s.split('|');
-      return { id: i + 1, name, area, address: `${i + 1} Test St, ${area} NSW 2000`, contact_name: '', phone: '', abn: '', seq: i + 1, route: 1, archived: false };
+      return { id: i + 1, name, area, address: `${i + 1} Test St, ${area} NSW 2000`, contact_name: '', phone: '', abn: '', payment_mode: 'cash', seq: i + 1, route: 1, archived: false };
     }),
     products: [
       { id: 1, name: '6 Pack', icon: '🍞', sort: 1, archived: false },

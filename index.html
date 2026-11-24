@@ -510,15 +510,6 @@
   .store-amount { font-weight: 600; color: var(--green); }
   .stop-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
   .stop-amount { font-size: 13px; font-weight: 700; color: var(--green); }
-  .pay-chips { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-  .pay-chip {
-    padding: 5px 10px; border-radius: 20px; cursor: pointer;
-    border: 1.5px solid var(--border); background: #fff; color: var(--muted);
-    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
-  }
-  .pay-chip.on[data-mode="cash"]   { background: var(--green-bg); border-color: var(--green); color: var(--green); }
-  .pay-chip.on[data-mode="online"] { background: #E8F0FE; border-color: #3367D6; color: #3367D6; }
-  .pay-chip.on[data-mode="unpaid"] { background: var(--red-bg); border-color: var(--red); color: var(--red); }
   .pay-badge {
     font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px;
     border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
@@ -1064,6 +1055,11 @@
         ">
       </div>
       <div>
+        <label class="modal-label">Payment mode</label>
+        <div class="route-switch" id="fPaySwitch"></div>
+        <input type="hidden" id="fPayment">
+      </div>
+      <div>
         <label class="modal-label">Delivery route</label>
         <div class="route-switch" id="fRouteSwitch"></div>
         <input type="hidden" id="fRoute">
@@ -1172,6 +1168,7 @@ function normalizeStore(s) {
     abn: String(s?.abn ?? ''),
     seq: parseInt(s?.seq, 10) || id,
     route: Number(s?.route) === 2 ? 2 : 1,
+    payment_mode: s?.payment_mode === 'online' ? 'online' : 'cash',
   };
 }
 
@@ -1255,7 +1252,6 @@ let currentRoute = routeForDate(currentDate) || 1;  // route shown on Orders / S
 // Money: the database only returns these to admins
 let PRICES = { normal: {}, special: {} };  // normal[pid], special[storeId][pid] (all GST-free)
 let linePrices = {};  // "storeId|pid" -> unit price saved with that order line (currentDate)
-let payments = {};    // storeId -> 'cash' | 'online' | 'unpaid' (currentDate)
 // Drivers only get a total per stop, worked out by the server
 let stopAmounts = {}; // storeId -> amount (currentDate)
 // Admin + baker
@@ -1268,13 +1264,14 @@ let CHARGES = { fuel_levy: 0, freight_fee: 0, freight_under: 0 };
 function clearDayData() {
   orders = {};
   linePrices = {};
-  payments = {};
   stopAmounts = {};
   production = {};
   storeLines = {};
 }
 
-const PAY_MODES = { cash: '💵 Cash', online: '📱 Online', unpaid: '🕒 Unpaid' };
+// How a store pays (set per store, printed on its invoices)
+const PAY_MODES = { cash: '💵 Cash', online: '📱 Online' };
+const PAY_MODE_NAMES = { cash: 'Cash', online: 'Online' };
 const money = n => (Number(n) || 0).toLocaleString('en-AU', { style: 'currency', currency: 'AUD' });
 
 // What each role sees and may do (the database enforces the same rules)
@@ -1652,7 +1649,6 @@ function updateRoutePage() {
           <div class="stop-name">${safeText(store.name)}</div>
           <div class="stop-addr">${safeText(store.address)}</div>
           <div class="stop-pills">${pills.join('')}</div>
-          ${can.seeMoney() ? paymentChips(store.id) : ''}
         </div>
         <div class="stop-side">
           <div class="stop-total">${orderTotal(o)}</div>
@@ -1660,29 +1656,6 @@ function updateRoutePage() {
         </div>
       </div>`;
   }).join('');
-}
-
-// Admin: how this stop paid. Tapping the selected mode again clears it.
-function paymentChips(storeId) {
-  return `<div class="pay-chips">${Object.entries(PAY_MODES).map(([mode, label]) =>
-    `<button class="pay-chip${payments[storeId] === mode ? ' on' : ''}" data-mode="${mode}"
-      onclick="setPayment(${storeId},'${mode}')">${label}</button>`).join('')}</div>`;
-}
-
-async function setPayment(storeId, mode) {
-  if (!can.seeMoney()) return;
-  const date = currentDate;
-  const prev = payments[storeId];
-  const next = prev === mode ? null : mode;
-  const apply = m => { if (m) payments[storeId] = m; else delete payments[storeId]; updateRoutePage(); updateTotalsPage(); };
-  apply(next);
-  const k = `deliveries|${date}|${storeId}`;
-  markLocalWrite(k, 1);
-  const res = await dbCall(sb.from('deliveries').upsert({ delivery_date: date, store_id: storeId, payment_mode: next }));
-  markLocalWrite(k, -1);
-  if (date !== currentDate) return;
-  if (!res.ok) { apply(prev); return; }
-  saveCache();
 }
 
 function deliveryDate() {
@@ -1712,9 +1685,6 @@ function invoiceData(store, lines, biz, iso) {
   const subtotal = lines.reduce((sum, { l }) => sum + l.amount, 0);
   const charges = deliveryCharges(store.id, subtotal);
   const total = charges.reduce((sum, c) => sum + c.amount, subtotal);
-  // Only admins can see payments; everyone else prints the full amount as due
-  const mode = can.seeMoney() ? payments[store.id] : null;
-  const paid = mode === 'cash' || mode === 'online' ? total : 0;
   const has = (label, v) => (v ? `${label}${v}` : '');
   return {
     no,
@@ -1726,9 +1696,9 @@ function invoiceData(store, lines, biz, iso) {
       ['Sub-total', subtotal],
       ...charges.map(c => [c.label, c.amount]),
       ['Tax (GST-free)', 0],
-      [paid ? `Total paid (${mode})` : 'Total paid', paid],
     ],
-    due: total - paid,
+    due: total,
+    paymentMode: PAY_MODE_NAMES[store.payment_mode] || 'Cash',
     bank: [['Bank:', biz.bank_name], ['Name:', biz.account_name], ['BSB:', biz.bsb], ['Account:', biz.account_no]].filter(([, v]) => v),
   };
 }
@@ -1811,7 +1781,7 @@ function drawInvoice(doc, inv, logo) {
   });
 
   // How to pay + sums (moved to a new page if they don't fit)
-  const sumsH = inv.sums.length * 6 + 14;
+  const sumsH = inv.sums.length * 6 + 26;
   const payH = inv.bank.length ? (inv.bank.length + 2) * 5 + 7 : 7;
   if (y + 9 + Math.max(sumsH, payH) > 255) { doc.addPage(); y = 20; } else y += 9;
   let yp = y + 4;
@@ -1836,6 +1806,11 @@ function drawInvoice(doc, inv, logo) {
   font('bold', 13); doc.setTextColor(255, 255, 255);
   doc.text('Balance due', sx + 4, ys + 5.3);
   doc.text(money(inv.due), R - 4, ys + 5.3, { align: 'right' });
+  // The store's payment mode, highlighted the same way
+  doc.setFillColor(26, 26, 26);  // (white text above also changed the fill colour)
+  doc.rect(sx, ys + 11, 78, 11, 'F');
+  doc.text('Payment mode', sx + 4, ys + 18.3);
+  doc.text(inv.paymentMode, R - 4, ys + 18.3, { align: 'right' });
 
   // Thank you + footer at the bottom of the page
   ink(); font('italic', 24);
@@ -2153,8 +2128,8 @@ function updateTotalsPage() {
         <div class="breakdown-addr">${safeText(s.area)}</div>
       </div>
       <div class="breakdown-qtys">${pills.join('')}${can.seeAmounts()
-        ? `<span class="breakdown-qty">${money(storeAmount(s.id))}</span>` : ''}${can.seeMoney() && payments[s.id]
-        ? `<span class="pay-badge">${PAY_MODES[payments[s.id]]}</span>` : ''}</div>
+        ? `<span class="breakdown-qty">${money(storeAmount(s.id))}</span>` : ''}${can.seeMoney()
+        ? `<span class="pay-badge">${PAY_MODES[s.payment_mode]}</span>` : ''}</div>
     </div>`;
   }).join('');
 }
@@ -2202,13 +2177,13 @@ function renderMoney(stops) {
     grid.innerHTML = moneyCard('Total amount', total, 'full');
     return;
   }
-  const by = { cash: 0, online: 0, unpaid: 0, none: 0 };
-  stops.forEach(s => by[payments[s.id] || 'none'] += storeAmount(s.id));
+  // Split by each store's payment mode
+  const by = { cash: 0, online: 0 };
+  stops.forEach(s => by[s.payment_mode] += storeAmount(s.id));
   const unpriced = stops.reduce((n, s) => n + Object.entries(orders[s.id] || {})
     .filter(([pid, q]) => sanitizeQty(q) > 0 && unitPrice(s.id, pid) == null).length, 0);
   grid.innerHTML = moneyCard('Total sales', total, 'full')
     + moneyCard(PAY_MODES.cash, by.cash) + moneyCard(PAY_MODES.online, by.online)
-    + moneyCard(PAY_MODES.unpaid, by.unpaid) + moneyCard('Not recorded', by.none)
     + (unpriced ? `<div class="money-card warn">⚠️ ${unpriced} order line${unpriced > 1 ? 's have' : ' has'} no price,
         counted as $0. Set prices in Products.</div>` : '');
 }
@@ -2683,6 +2658,7 @@ function openAddStore() {
   document.getElementById('fArea').value = '';
   document.getElementById('fAddress').value = '';
   ['fContact', 'fPhone', 'fAbn'].forEach(f => document.getElementById(f).value = '');
+  setFormPayment('cash');
   setFormRoute(currentRoute);
   document.getElementById('fSeq').value = routeIds(currentRoute).length + 1;
   document.getElementById('deleteStoreBtn').style.display = 'none';
@@ -2703,11 +2679,19 @@ function openEditStore(id) {
   document.getElementById('fContact').value = store.contact_name || '';
   document.getElementById('fPhone').value = store.phone || '';
   document.getElementById('fAbn').value = store.abn || '';
+  setFormPayment(store.payment_mode);
   setFormRoute(routeOf(store));
   document.getElementById('fSeq').value = routeIds(routeOf(store)).indexOf(id) + 1;
   document.getElementById('deleteStoreBtn').style.display = 'block';
   renderStorePriceInputs(id);
   document.getElementById('storeModal').style.display = 'flex';
+}
+
+function setFormPayment(mode) {
+  document.getElementById('fPayment').value = mode;
+  document.getElementById('fPaySwitch').innerHTML = Object.entries(PAY_MODES).map(([m, label]) => `
+    <button type="button" class="route-opt${m === mode ? ' on' : ''}" aria-pressed="${m === mode}"
+      onclick="setFormPayment('${m}')">${label}</button>`).join('');
 }
 
 function setFormRoute(r) {
@@ -2763,7 +2747,8 @@ async function saveStore() {
   _busy = true;
   try {
     const route = Number(document.getElementById('fRoute').value) === 2 ? 2 : 1;
-    const fields = { name, area, address, contact_name, phone, abn, route };
+    const payment_mode = document.getElementById('fPayment').value === 'online' ? 'online' : 'cash';
+    const fields = { name, area, address, contact_name, phone, abn, route, payment_mode };
     const current = sortedStores().map(s => s.id);
     let id = editId;
     if (id) {
@@ -3022,7 +3007,6 @@ async function loadDay() {
   const results = await Promise.all([
     sb.from('order_items').select('store_id,product_id,qty').eq('delivery_date', date),
     sb.from('order_item_prices').select('store_id,product_id,unit_price').eq('delivery_date', date),
-    sb.from('deliveries').select('store_id,payment_mode').eq('delivery_date', date),
     sb.from('production').select('product_id,qty_baked').eq('production_date', date),
     sb.rpc('stop_amounts', { p_date: date }).then(optionalRpc),
     sb.rpc('store_price_breakdown', { p_date: date }).then(optionalRpc),
@@ -3030,11 +3014,10 @@ async function loadDay() {
   const failed = results.find(r => r.error);
   if (failed) throw failed.error;
   if (date !== currentDate) return false;
-  const [items, lines, pays, baked, amounts, breakdown] = results.map(r => r.data || []);
+  const [items, lines, baked, amounts, breakdown] = results.map(r => r.data || []);
   clearDayData();
   items.forEach(r => applyQty(r.store_id, String(r.product_id), r.qty));
   lines.forEach(r => linePrices[`${r.store_id}|${r.product_id}`] = r.unit_price == null ? null : Number(r.unit_price));
-  pays.forEach(r => { if (r.payment_mode) payments[r.store_id] = r.payment_mode; });
   baked.forEach(r => production[String(r.product_id)] = r.qty_baked);
   amounts.forEach(r => stopAmounts[r.store_id] = Number(r.amount));
   setBreakdown(breakdown);
@@ -3116,7 +3099,7 @@ function saveCache() {
   if (!currentUser || !dataLoaded) return;
   store.set(CACHE_KEY, JSON.stringify({
     userId: currentUser.id, profile, stores: STORES, products: PRODUCTS, prices: PRICES, charges: CHARGES,
-    date: currentDate, orders, linePrices, payments, stopAmounts, production, storeLines,
+    date: currentDate, orders, linePrices, stopAmounts, production, storeLines,
   }));
 }
 
@@ -3134,7 +3117,6 @@ function loadCache() {
       Object.entries(c.orders).forEach(([sid, o]) =>
         Object.entries(o || {}).forEach(([pid, q]) => applyQty(parseInt(sid, 10), pid, q)));
       linePrices = { ...c.linePrices };
-      payments = { ...c.payments };
       stopAmounts = { ...c.stopAmounts };
       storeLines = { ...c.storeLines };
       production = { ...c.production };
@@ -3217,9 +3199,6 @@ function subscribeRealtime() {
       { event: '*', schema: 'public', table: 'order_item_prices', filter: `delivery_date=eq.${currentDate}` },
       onRemoteLinePrice)
     .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'deliveries', filter: `delivery_date=eq.${currentDate}` },
-      onRemotePayment)
-    .on('postgres_changes',
       { event: '*', schema: 'public', table: 'production', filter: `production_date=eq.${currentDate}` },
       onRemoteProduction)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'prices' }, schedulePricesRefresh)
@@ -3257,19 +3236,12 @@ function onRemoteLinePrice({ new: r }) {
   scheduleMoneyRefresh();
 }
 
-// While our own payment/production save is in flight, the realtime echo of an
+// While our own production save is in flight, the realtime echo of an
 // earlier save must not overwrite the newer value already on screen
 const localWrites = new Map();  // key -> saves in flight
 function markLocalWrite(k, delta) {
   const n = (localWrites.get(k) || 0) + delta;
   if (n > 0) localWrites.set(k, n); else localWrites.delete(k);
-}
-
-function onRemotePayment({ new: r }) {
-  if (!r || r.delivery_date !== currentDate) return;
-  if (localWrites.has(`deliveries|${r.delivery_date}|${r.store_id}`)) return;
-  if (r.payment_mode) payments[r.store_id] = r.payment_mode; else delete payments[r.store_id];
-  scheduleMoneyRefresh();
 }
 
 function onRemoteProduction({ new: r }) {

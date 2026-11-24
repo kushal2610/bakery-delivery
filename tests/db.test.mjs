@@ -177,6 +177,11 @@ ok('admin saves contact, phone and ABN',
   !(await as(db, 'admin', `update public.stores set contact_name = 'Sam Test', phone = '0412 345 678', abn = '12 345 678 901' where id = 3`)).error);
 ok('ABN must be 11 digits', !!(await as(db, 'admin', `update public.stores set abn = '12345' where id = 3`)).error);
 ok('driver sees store phone and ABN', (await as(db, 'driver', 'select phone, abn from public.stores where id = 3')).rows?.[0]?.abn === '12 345 678 901');
+ok('store payment mode: existing stores start on cash', (await db.query(`select count(*)::int n from public.stores where payment_mode <> 'cash'`)).rows[0].n === 0);
+ok('admin sets a store to online', !(await as(db, 'admin', `update public.stores set payment_mode = 'online' where id = 3`)).error);
+ok('store payment mode only cash or online', !!(await as(db, 'admin', `update public.stores set payment_mode = 'unpaid' where id = 3`)).error);
+ok('driver sees the store payment mode', (await as(db, 'driver', 'select payment_mode from public.stores where id = 3')).rows?.[0]?.payment_mode === 'online');
+ok('driver cannot change a store payment mode', ((await as(db, 'driver', `update public.stores set payment_mode = 'cash' where id = 3 returning id`)).rows?.length ?? 0) === 0);
 const sd = await as(db, 'driver', `update public.stores set phone = '000' where id = 3 returning id`);
 ok('driver cannot change store details', !sd.error && sd.rows.length === 0);
 

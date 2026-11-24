@@ -90,9 +90,18 @@ window.runTests = async function () {
     ok('production: equal -> green, short -> red', rowState('1') === 'ok' && rowState('2') === 'short' && $('diff-2').textContent === '-2');
     ok('production status names the shortfall', /Short: 9 Pack -2/.test($('prodStatus').textContent), $('prodStatus').textContent);
 
-    // ── payment + store invoice details
-    await setPayment(3, 'cash');
+    // ── store payment mode + invoice details
     showPage('stores');
+    openEditStore(7);
+    ok('store form: payment mode Cash / Online, Cash by default', visible($('fPaySwitch'))
+      && JSON.stringify([...$('fPaySwitch').querySelectorAll('button')].map(text)) === JSON.stringify(['💵 Cash', '📱 Online'])
+      && $('fPaySwitch').querySelector('.on').textContent.includes('Cash'));
+    $('fPaySwitch').querySelectorAll('button')[1].click();
+    await saveStore();
+    ok('payment mode Online saved for the store', dbStore(7).payment_mode === 'online' && STORES.find(s => s.id === 7).payment_mode === 'online', dbStore(7));
+    openAddStore();
+    ok('new store starts on Cash', $('fPayment').value === 'cash');
+    closeStoreModal();
     openEditStore(3);
     ok('store form has contact, phone and ABN fields', ['fContact', 'fPhone', 'fAbn'].every(id => visible($(id))));
     $('fContact').value = 'Sam Test'; $('fPhone').value = '0412 345 678'; $('fAbn').value = '12345';
@@ -109,6 +118,11 @@ window.runTests = async function () {
     showPage('route');
     const btns = [...document.querySelectorAll('#page-route .route-actions button')].map(b => text(b));
     ok('Route tab buttons: Save PDF and Print invoices only', JSON.stringify(btns) === JSON.stringify(['📄 Save PDF', '🖨 Print invoices']), btns);
+    ok('Route tab: no Cash / Online / Unpaid buttons', !document.querySelector('#page-route .pay-chip') && typeof setPayment === 'undefined');
+    showPage('totals');
+    const cardsTxt = [...document.querySelectorAll('#moneyGrid .money-card')].map(text);
+    ok('Totals: sales split into Cash and Online by store payment mode', cardsTxt.includes('$62.50💵 Cash') && cardsTxt.includes('$5.00📱 Online') && !cardsTxt.some(t => /Unpaid|Not recorded/.test(t)), cardsTxt);
+    showPage('route');
     ok('Maps and Copy Table code removed', typeof openMaps === 'undefined' && typeof copyCleanTable === 'undefined');
 
     // ── printing invoices (a PDF, printed from a hidden frame on a computer)
@@ -130,12 +144,13 @@ window.runTests = async function () {
     ok('line: product, qty, price, total', JSON.stringify(inv3.rows) === JSON.stringify([{ name: '6 Pack', unpriced: false, qty: 10, price: 3, amount: 30 }])
       && pdfHas('$3.00') && pdfHas('$30.00'), inv3.rows);
     ok('GST-free tax line $0.00', invSum(inv3, 'Tax (GST-free)') === '$0.00' && pdfHas('Tax (GST-free)'));
-    ok('paid in cash -> total paid $30, balance due $0', invSum(inv3, 'Total paid (cash)') === '$30.00' && money(inv3.due) === '$0.00' && pdfHas('Total paid (cash)'));
+    ok('balance due is the full amount; no "Total paid" line', money(inv3.due) === '$30.00' && !inv3.sums.some(([l]) => /paid/i.test(l)) && !pdfHas('Total paid'), inv3.sums);
+    ok('payment mode bar under balance due: Cash', inv3.paymentMode === 'Cash' && pdfHas('Payment mode') && pdfHas('Cash'));
     ok('bank details with invoice number as reference', ['Bank deposit', 'Example Bank', '000-000', '12345678', 'Reference:'].every(pdfHas));
-    ok('footer: number, due date, balance', pdfHas(`Invoice no: ${no3}`) && pdfHas('Due date: C.O.D.') && pdfHas('Balance due: $0.00'));
+    ok('footer: number, due date, balance', pdfHas(`Invoice no: ${no3}`) && pdfHas('Due date: C.O.D.') && pdfHas('Balance due: $30.00'));
     const inv7 = invData(7);
-    ok('special price on the invoice, unpaid -> balance due', inv7.rows[0].price === 2.5 && inv7.rows[0].amount === 5 && money(inv7.due) === '$5.00'
-      && invSum(inv7, 'Total paid') === '$0.00' && pdfHas('$2.50') && pdfHas('Balance due: $5.00'));
+    ok('special price on the invoice; Online store -> payment mode Online', inv7.rows[0].price === 2.5 && inv7.rows[0].amount === 5 && money(inv7.due) === '$5.00'
+      && inv7.paymentMode === 'Online' && pdfHas('Online') && pdfHas('$2.50') && pdfHas('Balance due: $5.00'));
     const inv6 = invData(6);
     ok('unpriced line marked, prints as $0.00', inv6.rows[0].unpriced && inv6.rows[0].amount === 0 && pdfHas('(no price set)') && pdfHas('Usal Pav'), inv6.rows);
     ok('logo from gj06-logo.png, embedded once for all pages', (lastPdf.match(/\/Subtype \/Image/g) || []).length === 1);
@@ -171,8 +186,8 @@ window.runTests = async function () {
     ok('$5 order (under $30): sub-total, freight $5, fuel levy $2, balance $12',
       invSum(c7, 'Sub-total') === '$5.00' && invSum(c7, 'Freight') === '$5.00' && invSum(c7, 'Fuel levy') === '$2.00' && money(c7.due) === '$12.00'
       && pdfHas('Freight') && pdfHas('Fuel levy') && pdfHas('Balance due: $12.00'), c7.sums);
-    ok('$30 order (not under $30): no freight, fuel levy only; cash paid covers it',
-      !invSum(c3, 'Freight') && invSum(c3, 'Fuel levy') === '$2.00' && invSum(c3, 'Total paid (cash)') === '$32.00' && money(c3.due) === '$0.00', c3.sums);
+    ok('$30 order (not under $30): no freight, fuel levy only',
+      !invSum(c3, 'Freight') && invSum(c3, 'Fuel levy') === '$2.00' && money(c3.due) === '$32.00', c3.sums);
     ok('stop amounts include the charges; no charges for a store with no order', storeAmount(7) === 12 && storeAmount(3) === 32 && storeAmount(1) === 0, [storeAmount(7), storeAmount(3), storeAmount(1)]);
     renderPriceBreakdown();
     ok('Bake tab: charges listed under the store, in its total', /Freight ?\$5\.00 ?Fuel levy ?\$2\.00/.test(text($('pb-7'))) && text($('pb-7').querySelector('.pb-store-total')) === '$12.00', text($('pb-7')));
@@ -191,14 +206,14 @@ window.runTests = async function () {
     await login('baker@test.com');
     ok('baker: tabs Orders/Route/Totals/Bake, starts on Bake', visibleTabs() === 'orders,route,totals,production' && activePage() === 'production', [visibleTabs(), activePage()]);
     ok('baker: store-wise lines from the server', /2 × 6 Pack @ \$2\.50/.test(text($('pb-7'))) && $('pb-total').textContent === '$67.50');
-    ok('baker: no price list or payments loaded', !Object.keys(PRICES.normal).length && !Object.keys(payments).length);
+    ok('baker: no price list loaded', !Object.keys(PRICES.normal).length);
     showPage('route');
     ok('baker: Print invoices button', visible($('printInvoicesBtn')));
     lastPdf = null;
     await printInvoices();
     const b3 = invData(3);
-    ok('baker prints the same invoices; payments not visible -> full balance due', pdfPages() === 4 && money(b3.due) === '$30.00'
-      && invSum(b3, 'Total paid') === '$0.00' && pdfHas('Balance due: $30.00'), [pdfPages(), b3.sums]);
+    ok('baker prints the same invoices, with payment modes', pdfPages() === 4 && money(b3.due) === '$30.00'
+      && b3.paymentMode === 'Cash' && invData(7).paymentMode === 'Online' && pdfHas('Balance due: $30.00'), [pdfPages(), b3.sums]);
 
     // ════ DRIVER ═══════════════════════════════════════════════════════
     await login('driver@test.com');
@@ -216,7 +231,7 @@ window.runTests = async function () {
       [...document.querySelectorAll('#page-route .stop-amount')].map(text));
     Object.assign(M.db.business_settings[0], { fuel_levy: 0, freight_fee: 0, freight_under: 0 });
     await refreshCatalog();
-    ok('driver: still no price list or payments', !Object.keys(PRICES.normal).length && !Object.keys(payments).length);
+    ok('driver: still no price list', !Object.keys(PRICES.normal).length);
 
     // ════ NO ROLE ══════════════════════════════════════════════════════
     await login('new@test.com');

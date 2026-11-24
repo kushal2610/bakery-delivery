@@ -60,7 +60,7 @@ old `staff` role become `driver`) and keeps all data.
 | Record what was baked (**Bake** tab) | ✓ | ✓ | |
 | Store invoices: each store's products, prices and total, plus the day total (**Bake** tab) | ✓ | ✓ | |
 | Amount per stop and total for the day | ✓ | | ✓ |
-| Prices, payment mode (Cash / Online / Unpaid), sales totals | ✓ | | |
+| Prices, each store's payment mode (Cash / Online), sales totals | ✓ | | |
 | Add / edit / remove stores and products, reorder stores | ✓ | | |
 | Clear all quantities for a date | ✓ | | |
 
@@ -92,8 +92,8 @@ names. Every change records who made it (`updated_by`).
   order, with one line per product: `qty × product @ price = amount`
   (using that store's special price if it has one). Each store shows its
   total, and the list ends with the overall total. An item without a price is
-  flagged and counted as $0. The baker sees this for invoicing; payment
-  modes and the price lists stay admin-only. Totals still shows the value per
+  flagged and counted as $0. The baker sees this for invoicing; the price
+  lists stay admin-only. Totals still shows the value per
   product on the product cards.
 
 ## Invoices
@@ -129,9 +129,10 @@ date and page numbers.
   Charges use the current setting, so reprinting an old day uses today's
   charges.
 - **Tax** prints as "Tax (GST-free) $0.00", and the due date is **C.O.D.**
-- **Total paid / Balance due:** for an admin, a stop marked Cash or Online on
-  the Route tab prints as paid. Bakers and drivers can't see payments, so their
-  copies show the full amount as due.
+- **Payment mode:** each store is Cash or Online (Stores → edit store; new
+  and existing stores start on Cash). It prints in a dark bar under Balance
+  due. The balance due is always the full amount; Totals splits the day's
+  sales into Cash and Online by each store's payment mode.
 - If any line has no price, the app asks before printing (it prints as $0.00).
 
 ## Production check
@@ -159,8 +160,8 @@ order changes.
 
 - **Delivery date:** the app opens on today's deliveries before 12:00 and on
   tomorrow's after (`NEXT_DAY_FROM_HOUR` in `index.html`). Use ‹ › or tap the
-  date to see or fix any other day. All days are kept. Payments and baked
-  quantities are kept per date too.
+  date to see or fix any other day. All days are kept. Baked quantities are
+  kept per date too.
 - **Drivers' amounts** update when an order changes. After a price change
   they refresh within a minute, or when the app is reopened.
 - **Sync dot** on the account button: green = saved, amber = saving,
