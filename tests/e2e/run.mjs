@@ -126,6 +126,14 @@ await evaluate(`(async () => {
   await new Promise(r => setTimeout(r, 200));
 })()`);
 await shot('invoices-admin.png');
+await evaluate(`(async () => {
+  __mock.db.customer_payments.push({ id: 900, store_id: 4, paid_on: currentDate, amount: 12.5, method: 'online', reference: 'Bank transfer' });
+  setInvoiceView('customers'); await loadCustomers(); CUST.open = null; await toggleCustomer(4);
+  document.querySelector('#custList [data-store="4"]').scrollIntoView();
+  await new Promise(r => setTimeout(r, 200));
+})()`);
+await shot('customers-admin.png');
+await evaluate(`(async () => { setInvoiceView('invoices'); window.scrollTo(0, 0); })()`);
 // The invoices PDF exactly as the app makes it
 const pdfB64 = await evaluate(`(async () => {
   closeStoreModal(); window.confirm = () => true;

@@ -658,6 +658,21 @@
   .inv-credit-form { display: grid; grid-template-columns: 90px 1fr; gap: 6px; }
   .inv-credit-form button { grid-column: 1 / -1; }
   .inv-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .inv-view-switch { margin-bottom: 0; }
+  .inv-chip.part { background: #FFF3D6; color: #8a6510; }
+  .inv-pay-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .inv-pay-form input, .inv-pay-form select, .inv-opening input {
+    width: 100%; padding: 9px 10px; border: 1.5px solid var(--border); border-radius: 10px;
+    font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--brown); background: #fff;
+  }
+  .inv-pay-form button { grid-column: 1 / -1; }
+  .inv-opening { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+  .inv-opening input { width: 110px; }
+  .inv-h { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  .inv-small { font-size: 13px; }
+  .inv-small > div { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 8px; }
+  .inv-small .m { color: var(--muted); }
+  .inv-owes { color: var(--red); }
   .inv-empty { padding: 30px 0; text-align: center; color: var(--muted); font-size: 14px; }
 
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
@@ -832,6 +847,10 @@
 ══════════════════════════════════════════════════════ -->
 <div class="page" id="page-invoices">
   <div class="inv-filters">
+    <div class="route-switch inv-view-switch" id="invViewSwitch" data-roles="admin">
+      <button type="button" class="route-opt on" data-view="invoices" onclick="setInvoiceView('invoices')">🧾 Invoices</button>
+      <button type="button" class="route-opt" data-view="customers" onclick="setInvoiceView('customers')">👥 Customers</button>
+    </div>
     <div class="inv-range">
       <label>From <input type="date" id="invFrom" onchange="loadInvoicesPage()"></label>
       <label>To <input type="date" id="invTo" onchange="loadInvoicesPage()"></label>
@@ -845,7 +864,7 @@
       <div class="search-field">
         <input type="search" id="invoices-search" class="search-input" placeholder="Search store"
           autocomplete="off" enterkeyhint="search" aria-label="Search stores"
-          oninput="renderInvoiceList()" onkeydown="if (event.key === 'Enter') this.blur()">
+          oninput="renderInvoicesView()" onkeydown="if (event.key === 'Enter') this.blur()">
         <button class="search-clear" onclick="clearInvoiceSearch()" aria-label="Clear search" hidden>✕</button>
       </div>
       <select id="invStatus" onchange="renderInvoiceList()" aria-label="Status">
@@ -857,12 +876,18 @@
     </div>
   </div>
   <div id="invStart" class="inv-start"></div>
-  <div class="route-actions">
-    <button class="route-btn btn-dark" onclick="invoicesBulk('save')">📄 Save PDF</button>
-    <button class="route-btn btn-dark" onclick="invoicesBulk('print')">🖨 Print</button>
+  <div id="invView">
+    <div class="route-actions">
+      <button class="route-btn btn-dark" onclick="invoicesBulk('save')">📄 Save PDF</button>
+      <button class="route-btn btn-dark" onclick="invoicesBulk('print')">🖨 Print</button>
+    </div>
+    <div class="inv-summary" id="invSummary"></div>
+    <div class="inv-list" id="invList"></div>
   </div>
-  <div class="inv-summary" id="invSummary"></div>
-  <div class="inv-list" id="invList"></div>
+  <div id="custView" hidden>
+    <div class="inv-summary" id="custSummary"></div>
+    <div class="inv-list" id="custList"></div>
+  </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════

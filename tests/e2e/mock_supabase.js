@@ -24,7 +24,7 @@
       { id: 3, name: 'Usal Pav', icon: '🥙', sort: 3, archived: false },
     ],
     order_items: [], order_item_prices: [], prices: [], deliveries: [], production: [],
-    invoices: [], invoice_lines: [], invoice_credits: [],
+    invoices: [], invoice_lines: [], invoice_credits: [], customer_payments: [], opening_balances: [],
     business_settings: [{
       id: 1, business_name: 'Test Bakery (Example)', address: '1 Example St, Testville NSW 2000', phone: '0400 000 000',
       abn: '11 111 111 111', bank_name: 'Example Bank', account_name: 'Test Bakery', bsb: '000-000', account_no: '12345678',
@@ -46,18 +46,19 @@
     deliveries: ['delivery_date', 'store_id'],
     production: ['production_date', 'product_id'],
     invoices: ['id'], invoice_lines: ['invoice_id', 'product_id'], invoice_credits: ['id'],
+    customer_payments: ['id'], opening_balances: ['store_id'],
   };
-  const nextId = { stores: 23, products: 4, prices: 1, invoices: 1, invoice_credits: 1 };
+  const nextId = { stores: 23, products: 4, prices: 1, invoices: 1, invoice_credits: 1, customer_payments: 1 };
   const ANY = ['admin', 'baker', 'driver'];
   const READ = {
     stores: ANY, products: ANY, order_items: ANY, business_settings: ANY,
     prices: ['admin'], order_item_prices: ['admin'], deliveries: ['admin'], production: ['admin', 'baker'],
-    invoices: ANY, invoice_lines: ANY, invoice_credits: ANY,
+    invoices: ANY, invoice_lines: ANY, invoice_credits: ANY, customer_payments: ['admin'], opening_balances: ['admin'],
   };
   const WRITE = {
     stores: ['admin'], products: ['admin'], order_items: ['admin'], prices: ['admin'], deliveries: ['admin'],
     production: ['admin', 'baker'], order_item_prices: [], profiles: [], business_settings: ['admin'],
-    invoices: [], invoice_lines: [], invoice_credits: ['admin', 'baker'],
+    invoices: [], invoice_lines: [], invoice_credits: ['admin', 'baker'], customer_payments: ['admin'], opening_balances: ['admin'],
   };
   const DELETE = { invoice_credits: ['admin'] };  // who may delete, where it differs from WRITE
   const log = [];
@@ -103,7 +104,8 @@
     const existing = op !== 'insert' && db[t].find(r => samePk(t, r, v));
     if (existing) { Object.assign(existing, v); emit(t, existing); if (t === 'prices') afterPriceChange(existing.product_id); return existing; }
     const defaults = t === 'stores' ? { archived: false, route: 1, contact_name: '', phone: '', abn: '' } : t === 'products' ? { archived: false }
-      : t === 'invoice_credits' ? { reason: '', created_at: new Date().toISOString(), updated_by: session?.user.id } : {};
+      : t === 'invoice_credits' ? { reason: '', created_at: new Date().toISOString(), updated_by: session?.user.id }
+      : t === 'customer_payments' ? { method: 'cash', reference: '', updated_by: session?.user.id } : {};
     const row = { ...defaults, ...v };
     if (nextId[t] && row.id == null) row.id = nextId[t]++;
     db[t].push(row); emit(t, row); afterInsert(t, row);
@@ -112,11 +114,12 @@
   }
 
   const rlsError = () => ({ code: '42501', message: 'new row violates row-level security policy' });
-  const badValue = v => ('qty' in v && v.qty < 0) || ('qty_baked' in v && v.qty_baked < 0)
+  const badValue = (v, t) => ('qty' in v && v.qty < 0) || ('qty_baked' in v && v.qty_baked < 0)
     || ('route' in v && ![1, 2].includes(v.route))
     || ('abn' in v && v.abn !== '' && !/^\d{11}$/.test(String(v.abn).replace(/\s/g, '')))
     || ('payment_mode' in v && v.payment_mode != null && !['cash', 'online', 'unpaid'].includes(v.payment_mode))
-    || ('amount' in v && !(Number(v.amount) > 0));
+    || ('amount' in v && !(t === 'opening_balances' ? Number(v.amount) >= 0 : Number(v.amount) > 0))
+    || ('method' in v && !['cash', 'online'].includes(v.method));
 
   class Query {
     constructor(t) { this.t = t; this.filters = []; this.op = 'select'; this.ret = false; this.one = null; this.sorts = []; }
@@ -153,7 +156,7 @@
       } else if (this.op === 'update') {
         if (!mayWrite) rows = [];
         else {
-          if (badValue(this.vals)) return { data: null, error: { message: 'violates check constraint' } };
+          if (badValue(this.vals, t)) return { data: null, error: { message: 'violates check constraint' } };
           rows = db[t].filter(match);
           rows.forEach(r => { Object.assign(r, this.vals); emit(t, r); if (t === 'prices') afterPriceChange(r.product_id); });
         }
@@ -164,7 +167,7 @@
         if (!mayWrite) return { data: null, error: rlsError() };
         rows = [];
         for (const v of this.vals) {
-          if (badValue(v)) return { data: null, error: { message: 'violates check constraint' } };
+          if (badValue(v, t)) return { data: null, error: { message: 'violates check constraint' } };
           if (this.op === 'insert' && PK[t][0] !== 'id' && db[t].some(r => samePk(t, r, v))) return { data: null, error: { message: 'duplicate key' } };
           rows.push(writeRow(t, v, this.op));
         }
@@ -182,6 +185,28 @@
     .map(r => ({ ...r, unit_price: db.order_item_prices.find(x => samePk('order_item_prices', x, r))?.unit_price ?? null }));
   const cents = n => Math.round(n * 100) / 100;
 
+  // invoice_balances(): opening balance first, then oldest invoices
+  function balances() {
+    const items = [];
+    db.opening_balances.filter(o => o.amount > 0).forEach(o => items.push({ store_id: o.store_id, delivery_date: null, invoice_id: null,
+      number: 'Opening balance', total: o.amount, credits: 0, net: o.amount, ord: 0 }));
+    db.invoices.forEach(i => {
+      const c = cents(db.invoice_credits.filter(x => x.store_id === i.store_id && x.delivery_date === i.delivery_date).reduce((t, x) => t + Number(x.amount), 0));
+      items.push({ store_id: i.store_id, delivery_date: i.delivery_date, invoice_id: i.id, number: i.number, total: i.total,
+        credits: c, net: Math.max(cents(i.total - c), 0), ord: 1 });
+    });
+    items.sort((a, b) => a.store_id - b.store_id || a.ord - b.ord || String(a.delivery_date).localeCompare(String(b.delivery_date)) || a.invoice_id - b.invoice_id);
+    const before = {};
+    return items.map(r => {
+      const pay = db.customer_payments.filter(p => p.store_id === r.store_id).reduce((t, p) => t + Number(p.amount), 0);
+      const b = before[r.store_id] || 0;
+      before[r.store_id] = b + r.net;
+      const paid = cents(Math.min(Math.max(pay - b, 0), r.net));
+      const { net, ord, ...out } = r;
+      return { ...out, paid, balance: cents(r.net - paid) };
+    });
+  }
+
   const client = {
     from: t => new Query(t),
     rpc(name, args) {
@@ -198,6 +223,27 @@
           if (!ANY.includes(me)) return { data: [], error: null };
           return { data: linesFor(args.p_date).map(r => ({ store_id: r.store_id, product_id: r.product_id, qty: r.qty,
             unit_price: r.unit_price, amount: cents(r.qty * (r.unit_price || 0)) })), error: null };
+        }
+        if (name === 'invoice_balances') {
+          if (me !== 'admin') return { data: [], error: null };
+          return { data: balances().filter(r => (args.p_store == null || r.store_id === args.p_store)
+            && (r.delivery_date == null || ((!args.p_from || r.delivery_date >= args.p_from) && (!args.p_to || r.delivery_date <= args.p_to)))), error: null };
+        }
+        if (name === 'store_accounts') {
+          if (me !== 'admin') return { data: [], error: null };
+          const by = {};
+          const acc = id => by[id] ||= { store_id: id, opening: 0, invoiced: 0, credits: 0, paid: 0, net: 0, oldest_unpaid: null, last_payment: null };
+          balances().forEach(r => {
+            const a = acc(r.store_id);
+            if (r.invoice_id == null) a.opening += r.total; else a.invoiced += r.total;
+            a.credits += r.credits; a.net += r.total - r.credits;
+            if (r.balance > 0 && r.delivery_date && (!a.oldest_unpaid || r.delivery_date < a.oldest_unpaid)) a.oldest_unpaid = r.delivery_date;
+          });
+          db.customer_payments.forEach(p => {
+            const a = acc(p.store_id); a.paid += p.amount;
+            if (!a.last_payment || p.paid_on > a.last_payment) a.last_payment = p.paid_on;
+          });
+          return { data: Object.values(by).map(a => ({ ...a, owing: cents(a.net - a.paid) })), error: null };
         }
         if (name === 'store_day_totals') {
           if (!['admin', 'baker'].includes(me)) return { data: [], error: null };

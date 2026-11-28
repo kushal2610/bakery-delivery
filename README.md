@@ -58,6 +58,7 @@ old `staff` role become `driver`) and keeps all data.
 | Print invoices (Route tab) | ✓ | ✓ | ✓ |
 | **Invoices** tab: find, save and print invoices, give credits | ✓ | ✓ | |
 | Set when invoice tracking starts, unlock an invoice, remove a credit | ✓ | | |
+| **Customers**: balances owing, record payments, opening balances | ✓ | | |
 | Enter / change order quantities | ✓ | | |
 | Record what was baked (**Bake** tab) | ✓ | ✓ | |
 | Store invoices: each store's products, prices and total, plus the day total (**Bake** tab) | ✓ | ✓ | |
@@ -160,6 +161,24 @@ date and page numbers.
   dates), store name and status. **Save PDF** / **Print** make one PDF of the
   whole list as shown (oldest day first, each day in delivery order); the
   button on one invoice saves just that invoice.
+
+### Payments and balances (admin)
+
+- **Invoices → 👥 Customers** lists every store with what it owes (most
+  first), since when, and its last payment. The top line shows the total owed
+  to you.
+- Open a store to **record a payment** (amount, date, cash/online,
+  reference). The amount starts filled in with what's owing. Delete a payment
+  with ✕ if it was entered by mistake.
+- **Payments aren't tied to an invoice.** Each store's payments pay off its
+  opening balance first, then its oldest invoices. Editing or deleting a
+  payment just recalculates. An invoice shows **Paid**, **Part paid** or
+  **Unpaid** in the Invoices list (filter by Unpaid / Paid). A store that paid
+  more than it owes shows **In credit**.
+- **Opening balance:** what a store still owed you in MYOB on the start date.
+  Type it once per store; 0 removes it.
+- Only saved (issued) invoices count towards balances, so print or save each
+  day's invoices. Credits on an invoice reduce what's owed.
 
 ## Production check
 

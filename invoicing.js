@@ -351,7 +351,11 @@ async function printInvoices() {
 }
 
 // ── INVOICES TAB ─────────────────────────────────────────────────────────────
-const INV = { from: '', to: '', rows: [], open: null, seq: 0, busy: false };
+const INV = { from: '', to: '', rows: [], open: null, seq: 0, busy: false, view: 'invoices' };
+
+const STATUS_OPTIONS = [['all', 'All'], ['draft', 'Not issued'], ['issued', 'Issued'], ['changed', 'Order changed'],
+  ['unpaid', 'Unpaid', true], ['paid', 'Paid', true]];  // true = admin only (payments)
+const PAY_STATUS = { paid: { label: 'Paid', cls: 'ok' }, part: { label: 'Part paid', cls: 'part' }, unpaid: { label: 'Unpaid', cls: 'bad' } };
 const invKey = (s, d) => `${Number(s)}|${d}`;
 
 const INV_STATUS = {
@@ -378,8 +382,33 @@ function setInvoiceRange(kind) {
 }
 
 function showInvoicesPage() {
+  const sel = document.getElementById('invStatus');
+  const keep = sel.value;
+  sel.innerHTML = STATUS_OPTIONS.filter(o => !o[2] || isAdmin()).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : 'all';
+  if (!isAdmin()) INV.view = 'invoices';
+  showInvoiceView();
   if (!document.getElementById('invFrom').value) setInvoiceRange('week');
   else loadInvoicesPage();
+}
+
+function showInvoiceView() {
+  document.getElementById('invView').hidden = INV.view !== 'invoices';
+  document.getElementById('custView').hidden = INV.view !== 'customers';
+  document.getElementById('invStatus').hidden = INV.view !== 'invoices';
+  document.querySelectorAll('#invViewSwitch .route-opt').forEach(b => b.classList.toggle('on', b.dataset.view === INV.view));
+}
+
+// Admin: Invoices list or Customers (balances, payments)
+function setInvoiceView(view) {
+  if (view === INV.view || !isAdmin()) return;
+  INV.view = view;
+  showInvoiceView();
+  if (view === 'customers') loadCustomers(); else renderInvoiceList();
+}
+
+function renderInvoicesView() {
+  if (INV.view === 'customers') renderCustomers(); else renderInvoiceList();
 }
 
 async function loadInvoicesPage() {
@@ -395,6 +424,7 @@ async function loadInvoicesPage() {
     sb.from('invoices').select('*').gte('delivery_date', from).lte('delivery_date', to),
     sb.from('invoice_credits').select('*').gte('delivery_date', from).lte('delivery_date', to),
     sb.rpc('store_day_totals', { p_from: from, p_to: to }),
+    isAdmin() ? sb.rpc('invoice_balances', { p_from: from, p_to: to, p_store: null }) : Promise.resolve({ data: [], error: null }),
   ]);
   if (seq !== INV.seq) return;
   const failed = results.find(r => r.error);
@@ -405,7 +435,8 @@ async function loadInvoicesPage() {
     list.innerHTML = '<div class="inv-empty">⚠️ Invoices need the latest database update: re-run supabase/schema.sql.</div>';
     return;
   }
-  const [st, inv, cr, dt] = results.map(r => r.data);
+  const [st, inv, cr, dt, bal] = results.map(r => r.data);
+  const balById = new Map((bal || []).filter(b => b.invoice_id != null).map(b => [Number(b.invoice_id), b]));
   ACCOUNTS_START = st?.accounts_start || null;
 
   const map = new Map();
@@ -427,18 +458,25 @@ async function loadInvoicesPage() {
     x.net = cents(x.total - x.credit);
     x.status = x.inv ? 'issued' : isTracked(x.date) ? 'draft' : 'untracked';
     x.changed = !!x.inv && Math.abs((x.live ?? 0) - Number(x.inv.subtotal)) > 0.004;
+    // Admin: what's been paid off this invoice (payments go to the oldest first)
+    const b = x.inv && balById.get(Number(x.inv.id));
+    x.paid = b ? Number(b.paid) : 0;
+    x.balance = b ? Number(b.balance) : x.net;
+    x.payStatus = !b ? null : x.balance <= 0.004 ? 'paid' : x.paid > 0.004 ? 'part' : 'unpaid';
     return x;
   }).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
     || (order.get(a.storeId) ?? 1e9) - (order.get(b.storeId) ?? 1e9));
   renderInvoiceStart();
-  renderInvoiceList();
+  if (INV.view === 'customers') await loadCustomers(); else renderInvoiceList();
 }
 
 function filteredInvoiceRows() {
   const terms = normalizeSearch(document.getElementById('invoices-search').value).split(' ').filter(Boolean);
   const status = document.getElementById('invStatus').value;
   return INV.rows.filter(x => terms.every(t => storeSearchText(x.store).includes(t))
-    && (status === 'all' || (status === 'changed' ? x.changed : x.status === status)));
+    && (status === 'all' || (status === 'changed' ? x.changed
+      : status === 'unpaid' ? x.payStatus === 'unpaid' || x.payStatus === 'part'
+      : status === 'paid' ? x.payStatus === 'paid' : x.status === status)));
 }
 
 function renderInvoiceStart() {
@@ -479,6 +517,7 @@ function renderInvoiceList() {
   document.getElementById('invSummary').textContent = rows.length
     ? `${rows.length} invoice${rows.length > 1 ? 's' : ''} · ${money(rows.reduce((t, x) => t + x.net, 0))}`
       + (drafts ? ` · ${drafts} not issued` : '') + (changed ? ` · ${changed} order${changed > 1 ? 's' : ''} changed` : '')
+      + (isAdmin() ? ` · ${money(rows.reduce((t, x) => t + (x.payStatus ? x.balance : 0), 0))} unpaid` : '')
     : '';
   if (!rows.length) {
     list.innerHTML = `<div class="inv-empty">${INV.rows.length ? 'No invoices match' : 'No orders in these dates'}</div>`;
@@ -493,7 +532,8 @@ function renderInvoiceList() {
         <div class="inv-main">
           <div class="inv-store">${safeText(x.store.name)}</div>
           <div class="inv-sub">${safeText(x.no)} <span class="inv-chip ${st.cls}">${st.label}</span>${x.changed
-            ? ' <span class="inv-chip bad">Order changed</span>' : ''}</div>
+            ? ' <span class="inv-chip bad">Order changed</span>' : ''}${x.payStatus
+            ? ` <span class="inv-chip ${PAY_STATUS[x.payStatus].cls}">${PAY_STATUS[x.payStatus].label}</span>` : ''}</div>
         </div>
         <div class="inv-amt">${money(x.net)}${x.credit ? `<small>incl. −${money(x.credit)} credit</small>` : ''}</div>
       </div>
@@ -517,7 +557,8 @@ function invoiceDetail(x) {
       <div><span>Total</span><span>${money(x.total)}</span></div>
       ${x.credits.map(c => `<div class="inv-credit"><span>Credit${c.reason ? ': ' + safeText(c.reason) : ''}</span>
         <span>−${money(c.amount)}${isAdmin() ? ` <button class="inv-x" onclick="deleteCredit(${Number(c.id)})" aria-label="Remove credit">✕</button>` : ''}</span></div>`).join('')}
-      <div class="inv-net"><span>Balance</span><span>${money(x.net)}</span></div>
+      ${x.payStatus ? `<div><span>Paid</span><span>−${money(x.paid)}</span></div>` : ''}
+      <div class="inv-net"><span>Balance</span><span>${money(x.payStatus ? x.balance : x.net)}</span></div>
     </div>
     ${canCredit ? `<div class="inv-credit-form">
       <input type="number" inputmode="decimal" step="0.01" min="0" id="crAmount" placeholder="Credit $">
@@ -616,6 +657,144 @@ async function invoicesBulk(mode) {
 function clearInvoiceSearch() {
   const input = document.getElementById('invoices-search');
   input.value = '';
-  renderInvoiceList();
+  renderInvoicesView();
   input.focus();
+}
+
+// ── CUSTOMERS (admin): balances, payments, opening balances ─────────────────
+const CUST = { rows: [], open: null, detail: null, seq: 0 };
+
+async function loadCustomers() {
+  const seq = ++CUST.seq;
+  const list = document.getElementById('custList');
+  if (!CUST.rows.length) list.innerHTML = '<div class="inv-empty">Loading…</div>';
+  const { data, error } = await sb.rpc('store_accounts');
+  if (seq !== CUST.seq) return;
+  if (error) {
+    console.warn('Customer balances unavailable:', error.message);
+    list.innerHTML = '<div class="inv-empty">⚠️ Balances need the latest database update: re-run supabase/schema.sql.</div>';
+    return;
+  }
+  const acct = new Map((data || []).map(a => [Number(a.store_id), a]));
+  const n = v => Number(v) || 0;
+  const order = new Map([...STORES].sort((a, b) => routeOf(a) - routeOf(b) || bySeq(a, b)).map((s, i) => [s.id, i]));
+  // Every active store (to record a payment or opening balance), plus archived ones with a balance
+  CUST.rows = STORES.filter(s => !s.archived || acct.has(s.id)).map(s => {
+    const a = acct.get(s.id) || {};
+    return { store: s, storeId: s.id, opening: n(a.opening), invoiced: n(a.invoiced), credits: n(a.credits), paid: n(a.paid),
+      owing: cents(n(a.owing)), oldestUnpaid: a.oldest_unpaid || null, lastPayment: a.last_payment || null };
+  }).sort((a, b) => b.owing - a.owing || (order.get(a.storeId) ?? 1e9) - (order.get(b.storeId) ?? 1e9));
+  if (CUST.open) await loadCustomerDetail(CUST.open);
+  renderCustomers();
+}
+
+function renderCustomers() {
+  const terms = normalizeSearch(document.getElementById('invoices-search').value).split(' ').filter(Boolean);
+  const search = document.getElementById('invoices-search');
+  search.nextElementSibling.hidden = !search.value;
+  const rows = CUST.rows.filter(x => terms.every(t => storeSearchText(x.store).includes(t)));
+  const owing = CUST.rows.filter(x => x.owing > 0.004);
+  document.getElementById('custSummary').textContent = CUST.rows.length
+    ? `Owed to you: ${money(owing.reduce((t, x) => t + x.owing, 0))} · ${owing.length} store${owing.length === 1 ? '' : 's'} owe` : '';
+  const list = document.getElementById('custList');
+  if (!rows.length) { list.innerHTML = `<div class="inv-empty">${CUST.rows.length ? 'No stores match' : 'No stores'}</div>`; return; }
+  list.innerHTML = rows.map(x => {
+    const sub = x.owing > 0.004 ? `Owes${x.oldestUnpaid ? ` since ${dayLabel(x.oldestUnpaid)}` : ' (opening balance)'}`
+      : x.owing < -0.004 ? `In credit ${money(-x.owing)}` : x.invoiced || x.opening ? 'Paid up' : 'No invoices yet';
+    return `<div class="inv-item${CUST.open === x.storeId ? ' open' : ''}" data-store="${x.storeId}">
+      <div class="inv-row" onclick="toggleCustomer(${x.storeId})">
+        <div class="inv-main">
+          <div class="inv-store">${safeText(x.store.name)}</div>
+          <div class="inv-sub">${sub}${x.lastPayment ? ` · last paid ${dayLabel(x.lastPayment)}` : ''}</div>
+        </div>
+        <div class="inv-amt${x.owing > 0.004 ? ' inv-owes' : ''}">${money(Math.max(x.owing, 0))}</div>
+      </div>
+      ${CUST.open === x.storeId ? customerDetail(x) : ''}
+    </div>`;
+  }).join('');
+}
+
+async function loadCustomerDetail(storeId) {
+  const [b, p] = await Promise.all([
+    sb.rpc('invoice_balances', { p_from: null, p_to: null, p_store: storeId }),
+    sb.from('customer_payments').select('*').eq('store_id', storeId),
+  ]);
+  CUST.detail = {
+    storeId,
+    unpaid: (b.data || []).filter(r => Number(r.balance) > 0.004),
+    payments: (p.data || []).sort((x, y) => (x.paid_on < y.paid_on ? 1 : x.paid_on > y.paid_on ? -1 : y.id - x.id)),
+  };
+}
+
+function customerDetail(x) {
+  const d = CUST.detail?.storeId === x.storeId ? CUST.detail : { unpaid: [], payments: [] };
+  const mode = x.store.payment_mode === 'online' ? 'online' : 'cash';
+  return `<div class="inv-detail">
+    <div class="inv-lines">
+      ${x.opening ? `<div><span>Opening balance</span><span>${money(x.opening)}</span></div>` : ''}
+      <div><span>Invoiced</span><span>${money(x.invoiced)}</span></div>
+      ${x.credits ? `<div class="inv-credit"><span>Credits</span><span>−${money(x.credits)}</span></div>` : ''}
+      <div><span>Paid</span><span>−${money(x.paid)}</span></div>
+      <div class="inv-net"><span>${x.owing < -0.004 ? 'In credit' : 'Owing'}</span><span>${money(Math.abs(x.owing))}</span></div>
+    </div>
+    ${d.unpaid.length ? `<div class="inv-h">Unpaid</div><div class="inv-small">${d.unpaid.map(r => `<div>
+      <span>${safeText(r.number)}${r.delivery_date ? ` <span class="m">· ${dayLabel(r.delivery_date)}</span>` : ''}</span>
+      <span>${money(r.balance)}${Number(r.paid) > 0 ? ` <span class="m">of ${money(Number(r.total) - Number(r.credits))}</span>` : ''}</span></div>`).join('')}</div>` : ''}
+    <div class="inv-h">Record a payment</div>
+    <div class="inv-pay-form">
+      <input type="number" inputmode="decimal" step="0.01" min="0" id="payAmount" placeholder="Amount $"
+        value="${x.owing > 0.004 ? x.owing.toFixed(2) : ''}">
+      <input type="date" id="payDate" value="${isoDate(new Date())}">
+      <select id="payMethod">${Object.entries(PAY_MODE_NAMES).map(([v, l]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <input type="text" id="payRef" maxlength="120" placeholder="Reference (optional)">
+      <button class="inv-btn" onclick="recordPayment(${x.storeId})">Record payment</button>
+    </div>
+    ${d.payments.length ? `<div class="inv-h">Payments</div><div class="inv-small">${d.payments.slice(0, 30).map(p => `<div>
+      <span>${dayLabel(p.paid_on)} <span class="m">· ${PAY_MODE_NAMES[p.method] || p.method}${p.reference ? ' · ' + safeText(p.reference) : ''}</span></span>
+      <span>${money(p.amount)} <button class="inv-x" onclick="deletePayment(${Number(p.id)})" aria-label="Delete payment">✕</button></span></div>`).join('')}</div>` : ''}
+    <div class="inv-opening">Opening balance (owed on ${ACCOUNTS_START ? auDate(ACCOUNTS_START) : 'the start date'})
+      <input type="number" inputmode="decimal" step="0.01" min="0" id="openingAmount" value="${x.opening ? x.opening.toFixed(2) : ''}" placeholder="$0.00">
+      <button class="inv-btn" onclick="saveOpening(${x.storeId})">Save</button></div>
+  </div>`;
+}
+
+async function toggleCustomer(storeId) {
+  CUST.open = CUST.open === storeId ? null : storeId;
+  if (CUST.open) await loadCustomerDetail(storeId);
+  renderCustomers();
+}
+
+async function recordPayment(storeId) {
+  if (INV.busy) return;
+  const amount = cents(parseFloat(document.getElementById('payAmount').value));
+  const paid_on = document.getElementById('payDate').value;
+  const method = document.getElementById('payMethod').value === 'online' ? 'online' : 'cash';
+  const reference = document.getElementById('payRef').value.trim();
+  if (!(amount > 0)) { showToast('Enter the amount paid'); return; }
+  if (!paid_on) { showToast('Enter the payment date'); return; }
+  INV.busy = true;
+  try {
+    const res = await dbCall(sb.from('customer_payments').insert({ store_id: storeId, paid_on, amount, method, reference }));
+    if (!res.ok) return;
+    showToast(`Payment of ${money(amount)} recorded ✓`);
+    await loadCustomers();
+  } finally { INV.busy = false; }
+}
+
+async function deletePayment(id) {
+  if (!confirm('Delete this payment?')) return;
+  const res = await dbCall(sb.from('customer_payments').delete().eq('id', id).select('id'), true);
+  if (!res.ok) return;
+  showToast('Payment deleted');
+  await loadCustomers();
+}
+
+async function saveOpening(storeId) {
+  const raw = document.getElementById('openingAmount').value.trim();
+  const amount = raw === '' ? 0 : cents(parseFloat(raw));
+  if (!(amount >= 0)) { showToast('Enter the opening balance (0 or more)'); return; }
+  const res = await dbCall(sb.from('opening_balances').upsert({ store_id: storeId, amount }));
+  if (!res.ok) return;
+  showToast('Opening balance saved ✓');
+  await loadCustomers();
 }

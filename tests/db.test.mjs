@@ -88,6 +88,7 @@ await db.exec(`update public.profiles set role = 'driver' where id = '${U.driver
 
 const today = (await db.query(`select ((now() at time zone 'Australia/Sydney')::date)::text d`)).rows[0].d;
 const yesterday = (await db.query(`select ((now() at time zone 'Australia/Sydney')::date - 1)::text d`)).rows[0].d;
+const addDaysIso = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const count = async (who, sql) => { const r = await as(db, who, `select count(*)::int n from (${sql}) x`); return r.error ? r.error : r.rows[0].n; };
 
 ok('new account has no role', (await db.query(`select role from public.profiles where id = '${U.nobody}'`)).rows[0].role === null);
@@ -274,6 +275,43 @@ ok('admin removes a credit', (await as(db, 'admin', `delete from public.invoice_
 const sdt = async who => (await as(db, who, `select store_id::int s, subtotal::float8 sub, unpriced from public.store_day_totals($1, $1) order by 1`, [today])).rows;
 ok('store_day_totals: admin and baker', JSON.stringify(await sdt('baker')) === JSON.stringify([{ s: 7, sub: 260, unpriced: 0 }, { s: 8, sub: 26, unpriced: 1 }]), await sdt('baker'));
 ok('store_day_totals: not for drivers', (await sdt('driver')).length === 0);
+
+// ═══ Payments and balances ═══
+// Invoices now: store 7 today $262, store 8 today $33
+const bal = async (who, store = 8, from = null, to = null) => (await as(db, who,
+  `select number, total::float8 t, credits::float8 c, paid::float8 p, balance::float8 b from public.invoice_balances($1, $2, $3)`,
+  [from, to, store])).rows;
+const acct = async (who, store = 8) => (await as(db, who,
+  `select opening::float8 o, invoiced::float8 i, credits::float8 c, paid::float8 p, owing::float8 w, oldest_unpaid::text u
+     from public.store_accounts() where store_id = $1`, [store])).rows?.[0];
+const addPay = `insert into public.customer_payments (store_id, paid_on, amount, method, reference) values ($1, $2, $3, $4, $5) returning id::int`;
+ok('admin sets an opening balance', !(await as(db, 'admin', `insert into public.opening_balances (store_id, amount) values (8, 50)`)).error);
+ok('no payments: opening balance and invoice unpaid', JSON.stringify(await bal('admin')) === JSON.stringify([
+  { number: 'Opening balance', t: 50, c: 0, p: 0, b: 50 }, { number: i8.number, t: 33, c: 0, p: 0, b: 33 }]), await bal('admin'));
+const p1 = await as(db, 'admin', addPay, [8, today, 60, 'cash', '']);
+ok('admin records a payment', !p1.error && p1.rows.length === 1);
+ok('payment pays off the opening balance first, then the oldest invoice', JSON.stringify((await bal('admin')).map(r => [r.p, r.b]))
+  === JSON.stringify([[50, 0], [10, 23]]), await bal('admin'));
+const p2 = await as(db, 'admin', addPay, [8, today, 30, 'online', 'Bank ref 123']);
+ok('overpaid: invoice paid, store in credit (owing below 0)', (await bal('admin'))[1].b === 0 && (await acct('admin')).w === -7, await acct('admin'));
+ok('deleting a payment recalculates', !(await as(db, 'admin', `delete from public.customer_payments where id = $1`, [p2.rows[0].id])).error
+  && (await bal('admin'))[1].b === 23);
+await as(db, 'baker', addCredit, [8, today, 3, 'late']);
+ok('a credit reduces the invoice balance', (await bal('admin'))[1].c === 3 && (await bal('admin'))[1].b === 20, await bal('admin'));
+ok('store account: opening, invoiced, credits, paid, owing, oldest unpaid', JSON.stringify(await acct('admin'))
+  === JSON.stringify({ o: 50, i: 33, c: 3, p: 60, w: 20, u: today }), await acct('admin'));
+ok('date range filters invoices, keeps the opening balance', (await bal('admin', 8, addDaysIso(today, 1), null)).map(r => r.number).join() === 'Opening balance');
+ok('editing a payment recalculates', !(await as(db, 'admin', `update public.customer_payments set amount = 80 where id = $1`, [p1.rows[0].id])).error
+  && (await bal('admin'))[1].b === 0 && (await acct('admin')).w === 0);
+ok('payment must be more than $0; method cash or online', !!(await as(db, 'admin', addPay, [8, today, 0, 'cash', ''])).error
+  && !!(await as(db, 'admin', addPay, [8, today, 5, 'cheque', ''])).error);
+ok('payments stamped with the admin', (await db.query('select updated_by from public.customer_payments')).rows[0].updated_by === U.admin);
+for (const who of ['baker', 'driver']) {
+  ok(`${who}: no payments, opening balances or balances`, await count(who, 'select * from public.customer_payments') === 0
+    && await count(who, 'select * from public.opening_balances') === 0
+    && (await bal(who)).length === 0 && !(await acct(who)));
+  ok(`${who} cannot record a payment`, !!(await as(db, who, addPay, [8, today, 5, 'cash', ''])).error);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

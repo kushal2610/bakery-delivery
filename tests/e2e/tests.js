@@ -266,6 +266,43 @@ window.runTests = async function () {
     await until(() => !pending.size && dbQty(D, 7, 1) === 2);
     await unlockInvoice(k7);
 
+    // ── Customers (admin): balances, payments, opening balances
+    await openInv();
+    setInvoiceView('customers');
+    await loadCustomers();
+    const cust = id => CUST.rows.find(x => x.storeId === id);
+    ok('Customers: balances from saved invoices (store 7 not issued yet)', cust(3).owing === 30 && cust(4).owing === 32.5 && cust(7).owing === 0
+      && /Owed to you: \$62\.50 · 2 stores owe/.test($('custSummary').textContent) && !$('custView').hidden && $('invView').hidden, $('custSummary').textContent);
+    await toggleCustomer(3);
+    ok('customer detail: unpaid invoice, amount owing filled in, store payment mode', /261\d{3}-003|Unpaid/.test(text(document.querySelector('#custList .inv-detail')))
+      && $('payAmount').value === '30.00' && $('payMethod').value === 'cash', text(document.querySelector('#custList .inv-detail')));
+    $('payAmount').value = '20'; $('payRef').value = 'cash on delivery';
+    await recordPayment(3);
+    ok('payment recorded: owing $10', M.db.customer_payments.length === 1 && M.db.customer_payments[0].amount === 20 && cust(3).owing === 10, cust(3));
+    setInvoiceView('invoices');
+    await loadInvoicesPage();
+    $('invStatus').value = 'unpaid'; renderInvoiceList();
+    ok('Invoices: Unpaid filter shows part-paid and unpaid', filteredInvoiceRows().map(x => `${x.storeId}:${x.payStatus}`).sort().join() === '3:part,4:unpaid,6:paid'.replace(',6:paid', '')
+      && /Part paid/.test(text($('invList'))), filteredInvoiceRows().map(x => `${x.storeId}:${x.payStatus}:${x.balance}`));
+    ok('Invoices summary shows the unpaid total', /\$42\.50 unpaid/.test($('invSummary').textContent), $('invSummary').textContent);
+    setInvoiceView('customers');
+    await loadCustomers();
+    $('payAmount').value = '10';
+    await recordPayment(3);
+    ok('paid up', cust(3).owing === 0 && /Paid up/.test(text(document.querySelector('#custList [data-store="3"]'))));
+    $('openingAmount').value = '15';
+    await saveOpening(3);
+    ok('opening balance: owed again, paid off first', cust(3).owing === 15 && M.db.opening_balances[0].amount === 15);
+    const p = M.db.customer_payments[0].id;
+    await deletePayment(p);
+    ok('deleting a payment recalculates', M.db.customer_payments.length === 1 && cust(3).owing === 35, cust(3));
+    // tidy up for the tests below
+    $('openingAmount').value = ''; await saveOpening(3);
+    await deletePayment(M.db.customer_payments[0].id);
+    ok('opening balance 0 and no payments: owing back to $30', cust(3).owing === 30, cust(3));
+    setInvoiceView('invoices');
+    $('invStatus').value = 'all';
+
     // ── routes still work
     showPage('stores');
     openEditStore(4); pickFormRoute(2); await saveStore();
@@ -290,6 +327,8 @@ window.runTests = async function () {
     ok('baker: Invoices tab, sees the credit, no Unlock or remove-credit', INV.rows.length === 4 && INV.rows.every(x => x.status === 'issued')
       && /Credit: returned/.test(text(document.querySelector('.inv-detail'))) && !document.querySelector('.inv-detail .inv-x')
       && !/Unlock/.test(text(document.querySelector('.inv-actions'))) && !document.querySelector('#invStartDate'));
+    ok('baker: no Customers view, no paid/unpaid filters or payment status', !visible($('invViewSwitch'))
+      && ![...$('invStatus').options].some(o => /paid/i.test(o.value)) && !/Paid|Unpaid/.test(text($('invList'))));
     $('crAmount').value = '1'; $('crReason').value = 'broken pack';
     await addCredit(`7|${D}`);
     ok('baker gives a credit', M.db.invoice_credits.length === 2 && M.db.invoice_credits[1].updated_by === 'u-baker');
