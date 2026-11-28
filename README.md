@@ -58,7 +58,8 @@ old `staff` role become `driver`) and keeps all data.
 | Print invoices (Route tab) | ✓ | ✓ | ✓ |
 | **Invoices** tab: find, save and print invoices, give credits | ✓ | ✓ | |
 | Set when invoice tracking starts, unlock an invoice, remove a credit | ✓ | | |
-| **Customers**: balances owing, record payments, opening balances | ✓ | | |
+| **Customers**: balances owing, record payments, opening balances, statements, CSV export | ✓ | | |
+| Share an invoice (WhatsApp, email, …) | ✓ | ✓ | |
 | Enter / change order quantities | ✓ | | |
 | Record what was baked (**Bake** tab) | ✓ | ✓ | |
 | Store invoices: each store's products, prices and total, plus the day total (**Bake** tab) | ✓ | ✓ | |
@@ -179,6 +180,28 @@ date and page numbers.
   Type it once per store; 0 removes it.
 - Only saved (issued) invoices count towards balances, so print or save each
   day's invoices. Credits on an invoice reduce what's owed.
+
+### Sending invoices and statements
+
+- **📤 Share** on an invoice (Invoices tab): on a phone, a **Share** button
+  opens the phone's Share sheet (WhatsApp, email, Messages, …) with the PDF;
+  on a computer the PDF is saved for you to attach. The invoice is then marked
+  **Sent**.
+- **Statements** (Customers): a statement lists a store's **unpaid invoices
+  in the dates chosen at the top**, with credits, what's been paid and the
+  amount due, plus your bank details. By default the unpaid invoices are
+  attached after it in the same PDF (untick "Attach the unpaid invoices" to
+  send just the statement).
+  - **📄 Statement for the dates above** on a store: just that store.
+  - **📤 Statements** at the top: one for every store that owes something in
+    those dates, each with its own Share/Save button (phones only open the
+    Share sheet one file per tap).
+- **⬇ Invoices CSV / ⬇ Payments CSV** (Customers): the invoices or payments in
+  the chosen dates, for your accountant or as a backup. Opens in Excel.
+
+**Keep records.** Australian businesses must keep invoices for 5 years. The
+Supabase free plan has no automatic backups, so export both CSVs regularly
+(for example each month) and keep them, or upgrade to a plan with backups.
 
 ## Production check
 

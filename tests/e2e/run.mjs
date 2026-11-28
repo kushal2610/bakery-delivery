@@ -155,22 +155,42 @@ writeFileSync(join(out, 'invoices.pdf'), pdf);
 const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
 report(`${pages === 4 ? 'PASS' : 'FAIL'} invoices.pdf has one A4 page per invoice (4)${pages === 4 ? '' : `  [${pages}]`}`);
 
-// Page 1 as an image, drawn with pdf.js (needs internet; skipped if offline)
-const png = await evaluate(`(async () => {
-  try {
-    await new Promise((ok, fail) => { const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; s.onload = ok; s.onerror = fail; document.head.append(s); });
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    const bytes = Uint8Array.from(atob('${pdfB64 || ''}'), c => c.charCodeAt(0));
-    const page = await (await pdfjsLib.getDocument({ data: bytes }).promise).getPage(1);
-    const vp = page.getViewport({ scale: 1.5 });
-    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-    return c.toDataURL('image/png').split(',')[1];
-  } catch (e) { return null; }
+// Page 1 of a PDF as an image, drawn with pdf.js (needs internet; skipped if offline)
+const renderPage1 = async (b64, name) => {
+  const png = await evaluate(`(async () => {
+    try {
+      if (!window.pdfjsLib) await new Promise((ok, fail) => { const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const bytes = Uint8Array.from(atob('${b64 || ''}'), c => c.charCodeAt(0));
+      const page = await (await pdfjsLib.getDocument({ data: bytes }).promise).getPage(1);
+      const vp = page.getViewport({ scale: 1.5 });
+      const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      return c.toDataURL('image/png').split(',')[1];
+    } catch (e) { return null; }
+  })()`);
+  if (png) writeFileSync(join(out, name), Buffer.from(png, 'base64'));
+  else console.log(`(${name} skipped: pdf.js could not be loaded)`);
+};
+await renderPage1(pdfB64, 'invoice-page1.png');
+
+// A statement (store 4: a credit, a part payment and an opening balance)
+const stB64 = await evaluate(`(async () => {
+  const db = __mock.db;
+  db.invoice_credits.push({ id: 901, store_id: 4, delivery_date: currentDate, amount: 2.5, reason: 'damaged' });
+  db.opening_balances.push({ store_id: 4, amount: 40 });
+  db.customer_payments.push({ id: 902, store_id: 4, paid_on: currentDate, amount: 50, method: 'cash', reference: '' });
+  const st = await statementData(4, currentDate, currentDate);
+  const doc = await statementPdf(st, db.business_settings[0], false);
+  const bytes = new Uint8Array(doc.output('arraybuffer'));
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return btoa(bin);
 })()`);
-if (png) writeFileSync(join(out, 'invoice-page1.png'), Buffer.from(png, 'base64'));
-else console.log('(invoice-page1.png skipped: pdf.js could not be loaded)');
+writeFileSync(join(out, 'statement.pdf'), Buffer.from(stB64 || '', 'base64'));
+await renderPage1(stB64, 'statement-page1.png');
+
 
 
 console.log(`\nconsole errors: ${errors.length ? '\n  ' + errors.join('\n  ') : 'none'}`);

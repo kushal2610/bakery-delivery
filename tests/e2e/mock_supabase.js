@@ -281,6 +281,11 @@
           }
           return { data: clone(db.invoices.filter(i => i.delivery_date === d && (!ids || ids.includes(i.store_id)))), error: null };
         }
+        if (name === 'mark_invoices_sent') {
+          if (!['admin', 'baker'].includes(me)) return { data: null, error: { code: '42501', message: 'Not allowed' } };
+          db.invoices.filter(i => args.p_ids.includes(i.id) && !i.sent_at).forEach(i => { i.sent_at = new Date().toISOString(); });
+          return { data: null, error: null };
+        }
         if (name === 'unlock_invoice') {
           if (me !== 'admin') return { data: null, error: { code: '42501', message: 'Only admins can unlock an invoice' } };
           db.invoices = db.invoices.filter(i => i.id !== args.p_id);

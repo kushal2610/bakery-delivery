@@ -303,6 +303,74 @@ window.runTests = async function () {
     setInvoiceView('invoices');
     $('invStatus').value = 'all';
 
+    // ── Sharing invoices and statements, CSV export
+    {
+      const realSave = window.savePdfFile, realCanShare = window.canShareFiles, realDownload = window.downloadFile;
+      const realShare = navigator.share;
+      let saved = [], shared = [], downloads = [];
+      window.savePdfFile = (doc, name) => saved.push({ name, text: doc.output() });
+      window.downloadFile = (name, text) => downloads.push({ name, text });
+      Object.defineProperty(navigator, 'share', { configurable: true, value: async ({ files }) => { shared.push({ name: files[0].name, text: await files[0].text() }); } });
+      try {
+        await openInv();
+        // computer: no Share sheet, the PDF is saved and the invoice marked sent
+        window.canShareFiles = () => false;
+        await shareInvoice(k3);
+        await until(() => M.db.invoices.find(i => i.store_id === 3).sent_at);
+        ok('computer: Share saves the invoice PDF and marks it sent', saved.length === 1 && saved[0].name === `invoice-${yymmdd}-003.pdf`
+          && !!M.db.invoices.find(i => i.store_id === 3).sent_at && $('shareSheet').hidden, saved.map(s => s.name));
+        await loadInvoicesPage();
+        ok('sent invoices show "Sent"', /Sent/.test(text(document.querySelector(`#invList [data-key="${k3}"]`))));
+        // phone: a Share button opens the Share sheet on its own tap
+        window.canShareFiles = () => true;
+        await shareInvoice(`4|${D}`);
+        ok('phone: Share button for the invoice', !$('shareSheet').hidden && $('shareList').querySelectorAll('button').length === 1 && shared.length === 0);
+        await sharePdfItem(0);
+        ok('phone: Share sheet gets the invoice PDF; marked sent', shared.length === 1 && shared[0].name === `invoice-${yymmdd}-004.pdf`
+          && /Big Apple/.test(shared[0].text) && $('share-0').textContent === '✓ Done', shared.map(s => s.name));
+        await until(() => M.db.invoices.find(i => i.store_id === 4).sent_at);
+        closeShareSheet();
+
+        // statements for everyone owing in the dates at the top
+        setInvoiceView('customers');
+        await loadCustomers();
+        shared = [];
+        await sendStatements();
+        ok('statements: one per store owing (2)', !$('shareSheet').hidden && $('shareList').querySelectorAll('.share-row').length === 2,
+          text($('shareList')));
+        await sharePdfItem(0);
+        const st = shared[0]?.text || '';
+        const stPages = (st.match(/\/Type \/Page[^s]/g) || []).length;
+        ok('statement PDF: title, unpaid invoice, amount due, then the invoice itself', /\(STATEMENT\)/.test(st) && st.includes(`(${yymmdd}-004)`)
+          && st.includes('(Amount due: $32.50)') && stPages === 2 && /statement-Big-Apple-Tallawong-/.test(shared[0].name), [shared[0]?.name, stPages]);
+        closeShareSheet();
+        $('stmtWithInvoices').checked = false;
+        shared = [];
+        await sendStatements(3);
+        await sharePdfItem(0);
+        ok('one store\'s statement, without the invoices', shared.length === 1 && (shared[0].text.match(/\/Type \/Page[^s]/g) || []).length === 1
+          && shared[0].text.includes('(Amount due: $30.00)'));
+        closeShareSheet();
+        $('stmtWithInvoices').checked = true;
+
+        // CSV
+        M.db.customer_payments.push({ id: 500, store_id: 3, paid_on: D, amount: 10, method: 'online', reference: '=HYPERLINK("x")' });
+        exportInvoicesCsv();
+        await exportPaymentsCsv();
+        const inv = downloads[0]?.text.split('\r\n') || [], pay = downloads[1]?.text.split('\r\n') || [];
+        ok('invoices CSV: header + one row per invoice', downloads[0]?.name === `invoices-${D}-to-${D}.csv` && inv.length === 6
+          && inv[0] === 'Date,Invoice no,Store,Status,Sub-total,Freight,Fuel levy,Total,Credits,Paid,Balance,Payment mode'
+          && inv.some(l => l.startsWith(`${D},${yymmdd}-007,Uma Mart,Not issued,`)), inv);
+        ok('payments CSV, with formulas made harmless', downloads[1]?.name === `payments-${D}-to-${D}.csv`
+          && pay[1] === `${D},Hamara Gaadi (Kellyville),10,Online,"'=HYPERLINK(""x"")"`, pay);
+        M.db.customer_payments.length = 0;
+      } finally {
+        window.savePdfFile = realSave; window.canShareFiles = realCanShare; window.downloadFile = realDownload;
+        if (realShare) Object.defineProperty(navigator, 'share', { configurable: true, value: realShare }); else delete navigator.share;
+        setInvoiceView('invoices');
+      }
+    }
+
     // ── routes still work
     showPage('stores');
     openEditStore(4); pickFormRoute(2); await saveStore();

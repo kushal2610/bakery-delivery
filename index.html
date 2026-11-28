@@ -265,6 +265,7 @@
   }
   .route-btn:active { opacity: 0.7; }
   .btn-dark { background: var(--brown); color: #fff; }
+  .route-btn:not(.btn-dark) { background: #fff; color: var(--brown); border: 1.5px solid var(--border); }
   .route-btn:disabled { opacity: 0.6; }
 
   .route-list { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
@@ -673,6 +674,14 @@
   .inv-small > div { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 8px; }
   .inv-small .m { color: var(--muted); }
   .inv-owes { color: var(--red); }
+  .inv-check { display: flex; gap: 8px; align-items: center; padding: 0 16px 8px; font-size: 13px; color: var(--muted); }
+  .share-sheet { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; justify-content: center; }
+  .share-sheet[hidden] { display: none; }
+  .share-box { width: 100%; max-width: 520px; max-height: 80vh; overflow-y: auto; background: var(--warm-white);
+    border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+  .share-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 700; color: var(--brown); }
+  .share-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; color: var(--brown);
+    padding: 6px 0; border-bottom: 1px solid var(--border); }
   .inv-empty { padding: 30px 0; text-align: center; color: var(--muted); font-size: 14px; }
 
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
@@ -782,6 +791,15 @@
 </div>
 
 
+<!-- SHARE SHEET (invoices, statements) -->
+<div class="share-sheet" id="shareSheet" hidden onclick="if (event.target === this) closeShareSheet()">
+  <div class="share-box">
+    <div class="share-title" id="shareTitle"></div>
+    <div id="shareList"></div>
+    <button class="route-btn btn-dark" onclick="closeShareSheet()">Close</button>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -885,6 +903,12 @@
     <div class="inv-list" id="invList"></div>
   </div>
   <div id="custView" hidden>
+    <div class="route-actions">
+      <button class="route-btn btn-dark" onclick="sendStatements()">📤 Statements</button>
+      <button class="route-btn" onclick="exportInvoicesCsv()">⬇ Invoices CSV</button>
+      <button class="route-btn" onclick="exportPaymentsCsv()">⬇ Payments CSV</button>
+    </div>
+    <label class="inv-check"><input type="checkbox" id="stmtWithInvoices" checked> Attach the unpaid invoices to statements</label>
     <div class="inv-summary" id="custSummary"></div>
     <div class="inv-list" id="custList"></div>
   </div>

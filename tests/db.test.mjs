@@ -313,5 +313,13 @@ for (const who of ['baker', 'driver']) {
   ok(`${who} cannot record a payment`, !!(await as(db, who, addPay, [8, today, 5, 'cash', ''])).error);
 }
 
+// Sent
+ok('driver cannot mark invoices sent', !!(await as(db, 'driver', 'select public.mark_invoices_sent($1)', [[i8.id]])).error);
+ok('baker marks an invoice sent', !(await as(db, 'baker', 'select public.mark_invoices_sent($1)', [[i8.id]])).error
+  && (await db.query('select sent_at from public.invoices where id = $1', [i8.id])).rows[0].sent_at !== null);
+const firstSent = (await db.query('select sent_at::text s from public.invoices where id = $1', [i8.id])).rows[0].s;
+await as(db, 'admin', 'select public.mark_invoices_sent($1)', [[i8.id]]);
+ok('sent date is the first time', (await db.query('select sent_at::text s from public.invoices where id = $1', [i8.id])).rows[0].s === firstSent);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

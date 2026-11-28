@@ -147,37 +147,83 @@ async function logoDataUrl() {
   } catch (_) { return null; }
 }
 
-// One A4 page (mm). Standard PDF fonts only cover Western characters.
-function drawInvoice(doc, inv, logo) {
-  const L = 16, R = 194, W = R - L;
-  const ink = () => doc.setTextColor(17, 17, 17);
-  const font = (style, size) => { doc.setFont('helvetica', style); doc.setFontSize(size); };
+// Drawing helpers shared by invoices and statements (A4, mm). Standard PDF
+// fonts only cover Western characters.
+function pdfKit(doc) {
   const pdfText = s => String(s ?? '').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
-  const fit = (s, w) => doc.splitTextToSize(pdfText(s), w)[0] || '';
+  return {
+    L: 16, R: 194, W: 178,
+    ink: () => doc.setTextColor(17, 17, 17),
+    font: (style, size) => { doc.setFont('helvetica', style); doc.setFontSize(size); },
+    fit: (s, w) => doc.splitTextToSize(pdfText(s), w)[0] || '',
+  };
+}
 
-  // Title + logo
+// Title, logo, your details / Billed To, and the info strip; returns the y below it
+function drawHeader(doc, title, from, to, meta, logo) {
+  const { L, R, W, ink, font, fit } = pdfKit(doc);
   ink(); font('normal', 30);
-  doc.text('INVOICE', L, 34, { charSpace: 3 });
+  doc.text(title, L, 34, { charSpace: 3 });
   if (logo) { try { doc.addImage(logo, 'PNG', R - 40, 12, 40, 40 * 880 / 960, 'logo'); } catch (_) {} }
 
-  // From / Billed To
   let yL = 62, yR = 62;
-  font('bold', 12); doc.text(fit(inv.from.name, 100), L, yL); yL += 6;
-  font('normal', 10); inv.from.lines.forEach(s => { doc.text(fit(s, 100), L, yL); yL += 5; });
+  font('bold', 12); doc.text(fit(from.name, 100), L, yL); yL += 6;
+  font('normal', 10); from.lines.forEach(s => { doc.text(fit(s, 100), L, yL); yL += 5; });
   font('bold', 12); doc.text('Billed To', R, yR, { align: 'right' }); yR += 6;
-  font('normal', 10); inv.to.forEach(s => { doc.text(fit(s, 75), R, yR, { align: 'right' }); yR += 5; });
+  font('normal', 10); to.forEach(s => { doc.text(fit(s, 75), R, yR, { align: 'right' }); yR += 5; });
 
-  // Invoice no / issue date / due date
-  let y = Math.max(yL, yR) + 4;
+  const y = Math.max(yL, yR) + 4;
   doc.setDrawColor(204, 204, 204); doc.setLineWidth(0.3);
   doc.rect(L, y, W, 14);
-  [['INVOICE NO', inv.no], ['ISSUE DATE', inv.date], ['DUE DATE', 'C.O.D.']].forEach(([label, value], i) => {
-    const x = L + i * W / 3;
+  meta.forEach(([label, value], i) => {
+    const x = L + i * W / meta.length;
     if (i) doc.line(x, y, x, y + 14);
     font('normal', 7); doc.setTextColor(102, 102, 102); doc.text(label, x + 4, y + 5, { charSpace: 0.3 });
-    font('bold', 11); ink(); doc.text(value, x + 4, y + 11);
+    font('bold', 11); ink(); doc.text(fit(value, W / meta.length - 6), x + 4, y + 11);
   });
-  y += 22;
+  return y + 22;
+}
+
+// "How to pay" with bank details; returns nothing
+function drawHowToPay(doc, bank, reference, y) {
+  const { L, ink, font, fit } = pdfKit(doc);
+  let yp = y + 4;
+  font('bold', 12.5); ink(); doc.text('How to pay', L, yp); yp += 6;
+  font('normal', 10);
+  if (bank.length) {
+    doc.text('Bank deposit', L, yp); yp += 5;
+    [...bank, ['Reference:', reference]].forEach(([k, v]) => {
+      font('bold', 10); doc.text(k, L, yp);
+      font('normal', 10); doc.text(fit(v, 60), L + 25, yp); yp += 5;
+    });
+  }
+}
+
+// Dark bar with white text (label left, value right)
+function drawBar(doc, x, y, w, label, value) {
+  const { font } = pdfKit(doc);
+  doc.setFillColor(26, 26, 26);  // set every time: white text also changes the fill colour
+  doc.rect(x, y, w, 11, 'F');
+  font('bold', 13); doc.setTextColor(255, 255, 255);
+  doc.text(label, x + 4, y + 7.3);
+  doc.text(value, x + w - 4, y + 7.3, { align: 'right' });
+}
+
+function drawFooter(doc, parts) {
+  const { L, R, ink, font } = pdfKit(doc);
+  ink(); font('italic', 24);
+  doc.text('Thank You', 105, 266, { align: 'center' });
+  doc.setDrawColor(204, 204, 204); doc.line(L, 274, R, 274);
+  font('normal', 8.5); doc.setTextColor(102, 102, 102);
+  doc.text(parts[0], L, 279);
+  doc.text(parts[1], 105, 279, { align: 'center' });
+  doc.text(parts[2], R, 279, { align: 'right' });
+}
+
+// One invoice (one A4 page, more if it has many lines)
+function drawInvoice(doc, inv, logo) {
+  const { L, R, W, ink, font, fit } = pdfKit(doc);
+  let y = drawHeader(doc, 'INVOICE', inv.from, inv.to, [['INVOICE NO', inv.no], ['ISSUE DATE', inv.date], ['DUE DATE', 'C.O.D.']], logo);
 
   // Lines
   const col = { qty: 120, price: 157, total: R - 4 };
@@ -213,16 +259,7 @@ function drawInvoice(doc, inv, logo) {
   const sumsH = inv.sums.length * 6 + 26;
   const payH = inv.bank.length ? (inv.bank.length + 2) * 5 + 7 : 7;
   if (y + 9 + Math.max(sumsH, payH) > 255) { doc.addPage(); y = 20; } else y += 9;
-  let yp = y + 4;
-  font('bold', 12.5); ink(); doc.text('How to pay', L, yp); yp += 6;
-  font('normal', 10);
-  if (inv.bank.length) {
-    doc.text('Bank deposit', L, yp); yp += 5;
-    [...inv.bank, ['Reference:', inv.no]].forEach(([k, v]) => {
-      font('bold', 10); doc.text(k, L, yp);
-      font('normal', 10); doc.text(fit(v, 60), L + 25, yp); yp += 5;
-    });
-  }
+  drawHowToPay(doc, inv.bank, inv.no, y);
   const sx = R - 78;
   let ys = y + 4;
   font('normal', 10); ink();
@@ -231,24 +268,221 @@ function drawInvoice(doc, inv, logo) {
     doc.text(money(amount), R - 4, ys, { align: 'right' });
     ys += 6;
   });
-  doc.setFillColor(26, 26, 26); doc.rect(sx, ys - 2, 78, 11, 'F');
-  font('bold', 13); doc.setTextColor(255, 255, 255);
-  doc.text('Balance due', sx + 4, ys + 5.3);
-  doc.text(money(inv.due), R - 4, ys + 5.3, { align: 'right' });
-  // The store's payment mode, highlighted the same way
-  doc.setFillColor(26, 26, 26);  // (white text above also changed the fill colour)
-  doc.rect(sx, ys + 11, 78, 11, 'F');
-  doc.text('Payment mode', sx + 4, ys + 18.3);
-  doc.text(inv.paymentMode, R - 4, ys + 18.3, { align: 'right' });
+  drawBar(doc, sx, ys - 2, 78, 'Balance due', money(inv.due));
+  drawBar(doc, sx, ys + 11, 78, 'Payment mode', inv.paymentMode);  // the store's payment mode
+  drawFooter(doc, [`Invoice no: ${inv.no}`, 'Due date: C.O.D.', `Balance due: ${money(inv.due)}`]);
+}
 
-  // Thank you + footer at the bottom of the page
-  ink(); font('italic', 24);
-  doc.text('Thank You', 105, 266, { align: 'center' });
-  doc.setDrawColor(204, 204, 204); doc.line(L, 274, R, 274);
-  font('normal', 8.5); doc.setTextColor(102, 102, 102);
-  doc.text(`Invoice no: ${inv.no}`, L, 279);
-  doc.text('Due date: C.O.D.', 105, 279, { align: 'center' });
-  doc.text(`Balance due: ${money(inv.due)}`, R, 279, { align: 'right' });
+// ── STATEMENTS (admin) ───────────────────────────────────────────────────────
+// A store's unpaid invoices in a date range (plus any unpaid opening balance)
+async function statementData(storeId, from, to) {
+  const { data, error } = await sb.rpc('invoice_balances', { p_from: from, p_to: to, p_store: storeId });
+  if (error) throw error;
+  const rows = (data || []).filter(r => Number(r.balance) > 0.004).map(r => ({
+    date: r.delivery_date, no: r.number, invoiceId: r.invoice_id == null ? null : Number(r.invoice_id),
+    total: Number(r.total), credits: Number(r.credits), paid: Number(r.paid), balance: Number(r.balance),
+  }));
+  return { store: storeById(storeId), from, to, rows, due: cents(rows.reduce((t, r) => t + r.balance, 0)) };
+}
+
+function drawStatement(doc, st, biz, logo) {
+  const { L, R, W, ink, font, fit } = pdfKit(doc);
+  const has = (label, v) => (v ? `${label}${v}` : '');
+  const store = st.store;
+  const ref = `Statement ${store.name}`;
+  let y = drawHeader(doc, 'STATEMENT',
+    { name: biz.business_name, lines: [biz.address, has('Phone: ', biz.phone), has('ABN: ', biz.abn)].filter(Boolean) },
+    [store.contact_name, store.name, store.address || store.area, has('Phone: ', store.phone), has('ABN: ', store.abn)].filter(Boolean),
+    [['DATE', auDate(isoDate(new Date()))], ['PERIOD', `${auDate(st.from)} - ${auDate(st.to)}`], ['AMOUNT DUE', money(st.due)]], logo);
+
+  const col = { no: L + 30, total: 122, credits: 144, paid: 166, balance: R - 4 };
+  const header = () => {
+    doc.setFillColor(26, 26, 26); doc.rect(L, y, W, 9, 'F');
+    font('bold', 10); doc.setTextColor(255, 255, 255);
+    doc.text('Date', L + 4, y + 6);
+    doc.text('Invoice', col.no, y + 6);
+    doc.text('Total', col.total, y + 6, { align: 'right' });
+    doc.text('Credits', col.credits, y + 6, { align: 'right' });
+    doc.text('Paid', col.paid, y + 6, { align: 'right' });
+    doc.text('Balance', col.balance, y + 6, { align: 'right' });
+    y += 9;
+  };
+  header();
+  st.rows.forEach((r, i) => {
+    if (y > 262) { doc.addPage(); y = 20; header(); }
+    if (i % 2) { doc.setFillColor(236, 236, 236); doc.rect(L, y, W, 8, 'F'); }
+    font('normal', 10); ink();
+    doc.text(r.date ? auDate(r.date) : '-', L + 4, y + 5.5);
+    doc.text(fit(r.no, 46), col.no, y + 5.5);
+    doc.text(money(r.total), col.total, y + 5.5, { align: 'right' });
+    doc.text(r.credits ? money(-r.credits) : '-', col.credits, y + 5.5, { align: 'right' });
+    doc.text(r.paid ? money(-r.paid) : '-', col.paid, y + 5.5, { align: 'right' });
+    doc.text(money(r.balance), col.balance, y + 5.5, { align: 'right' });
+    y += 8;
+  });
+  if (!st.rows.length) { font('italic', 10); ink(); doc.text('Nothing owing for this period. Thank you!', L + 4, y + 6); y += 9; }
+
+  if (y + 9 + 50 > 255) { doc.addPage(); y = 20; } else y += 9;
+  const bank = [['Bank:', biz.bank_name], ['Name:', biz.account_name], ['BSB:', biz.bsb], ['Account:', biz.account_no]].filter(([, v]) => v);
+  drawHowToPay(doc, bank, ref, y);
+  drawBar(doc, R - 78, y + 2, 78, 'Amount due', money(st.due));
+  drawFooter(doc, [`${st.rows.length} unpaid invoice${st.rows.length === 1 ? '' : 's'}`, `${auDate(st.from)} - ${auDate(st.to)}`, `Amount due: ${money(st.due)}`]);
+}
+
+// Statement PDF, followed by the unpaid invoices themselves when `withInvoices`
+async function statementPdf(st, biz, withInvoices) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  doc.setProperties({ title: `Statement ${st.store.name}` });
+  const logo = await logoDataUrl();
+  drawStatement(doc, st, biz, logo);
+  if (withInvoices) {
+    const keys = st.rows.filter(r => r.invoiceId).map(r => ({ storeId: st.store.id, date: r.date }));
+    for (const rec of await invoiceRecs(keys, false)) { doc.addPage(); drawInvoice(doc, invoiceData(rec, biz), logo); }
+  }
+  return doc;
+}
+
+const fileSafe = s => String(s).replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'store';
+
+// ── SHARING ──────────────────────────────────────────────────────────────────
+// Phones: the Share sheet (WhatsApp, email, …); computers: download. Shown as
+// buttons so the Share sheet opens on its own tap (phones refuse it after
+// waiting for the network).
+const SHARE = { items: [] };
+function canShareFiles() {
+  try { return !!navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] }); }
+  catch (_) { return false; }
+}
+
+// items: [{ label, doc, filename, title, onSent }]
+function offerPdfs(title, items) {
+  if (!items.length) { showToast('Nothing to send'); return; }
+  if (!canShareFiles() && items.length === 1) {  // computer, one file: just download it
+    savePdfFile(items[0].doc, items[0].filename);
+    items[0].onSent?.();
+    showToast('📄 PDF saved');
+    return;
+  }
+  SHARE.items = items;
+  document.getElementById('shareTitle').textContent = title;
+  document.getElementById('shareList').innerHTML = items.map((it, i) => `<div class="share-row">
+    <span>${safeText(it.label)}</span>
+    <button class="inv-btn" id="share-${i}" onclick="sharePdfItem(${i})">${canShareFiles() ? '📤 Share' : '📄 Save'}</button></div>`).join('');
+  document.getElementById('shareSheet').hidden = false;
+}
+
+async function sharePdfItem(i) {
+  const it = SHARE.items[i];
+  if (!it) return;
+  if (canShareFiles()) {
+    const file = new File([it.doc.output('blob')], it.filename, { type: 'application/pdf' });
+    try {
+      await navigator.share({ files: [file], title: it.title });
+    } catch (e) {
+      if (e?.name === 'AbortError') return;  // closed the Share sheet
+      savePdfFile(it.doc, it.filename);
+    }
+  } else {
+    savePdfFile(it.doc, it.filename);
+  }
+  const btn = document.getElementById(`share-${i}`);
+  if (btn) btn.textContent = '✓ Done';
+  it.onSent?.();
+}
+
+function closeShareSheet() {
+  document.getElementById('shareSheet').hidden = true;
+  SHARE.items = [];
+}
+
+// Invoices tab: share one invoice (saved first) and note that it was sent
+async function shareInvoice(key) {
+  const x = invRow(key);
+  if (!x || INV.busy) return;
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library loading, try again in a moment...'); return; }
+  INV.busy = true;
+  try {
+    if (!unpricedConfirm(x.inv ? 0 : x.unpriced)) return;
+    const biz = await loadBusiness();
+    if (!biz) return;
+    const [rec] = await invoiceRecs([{ storeId: x.storeId, date: x.date }], true);
+    if (!rec) { showToast('No order on this day'); return; }
+    const doc = await invoicesPdf([rec], biz, `Invoice ${rec.no}`);
+    offerPdfs(`Invoice ${rec.no} · ${rec.store.name}`, [{
+      label: `${rec.store.name} · ${money(rec.total - creditsTotal(rec))}`, doc, filename: `invoice-${rec.no}.pdf`, title: `Invoice ${rec.no}`,
+      onSent: async () => { if (rec.invoiceId) await sb.rpc('mark_invoices_sent', { p_ids: [rec.invoiceId] }); loadInvoicesPage(); },
+    }]);
+    await loadInvoicesPage();
+  } catch (error) {
+    showToast('⚠️ ' + friendlyError(error));
+  } finally { INV.busy = false; }
+}
+
+// Customers: statements for the dates chosen at the top (one store, or every
+// store owing something in those dates)
+async function sendStatements(storeId) {
+  if (INV.busy) return;
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library loading, try again in a moment...'); return; }
+  const from = document.getElementById('invFrom').value, to = document.getElementById('invTo').value;
+  if (!from || !to || from > to) { showToast('Choose the dates at the top first'); return; }
+  INV.busy = true;
+  try {
+    const biz = await loadBusiness();
+    if (!biz) return;
+    const withInvoices = document.getElementById('stmtWithInvoices')?.checked ?? true;
+    const ids = storeId ? [storeId] : CUST.rows.filter(x => x.owing > 0.004).map(x => x.storeId);
+    const items = [];
+    for (const id of ids) {
+      const st = await statementData(id, from, to);
+      if (!storeId && !st.rows.length) continue;  // nothing owing in these dates
+      const doc = await statementPdf(st, biz, withInvoices);
+      items.push({ label: `${st.store.name} · ${money(st.due)}`, doc, title: `Statement ${st.store.name}`,
+        filename: `statement-${fileSafe(st.store.name)}-${from}-to-${to}.pdf` });
+    }
+    if (!items.length) { showToast('No store owes anything for invoices in these dates'); return; }
+    offerPdfs(storeId ? `Statement · ${auDate(from)} – ${auDate(to)}` : `Statements · ${auDate(from)} – ${auDate(to)}`, items);
+  } catch (error) {
+    showToast('⚠️ ' + friendlyError(error));
+  } finally { INV.busy = false; }
+}
+
+// ── CSV EXPORT (admin): for your accountant, and as a backup ─────────────────
+function csvCell(v) {
+  if (typeof v === 'number') return String(v);
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;  // stop spreadsheets treating text as a formula
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+const toCsv = rows => rows.map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+function downloadFile(filename, text, type) {
+  const url = URL.createObjectURL(new Blob(['﻿' + text], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function exportInvoicesCsv() {
+  const rows = [...INV.rows].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  if (!rows.length) { showToast('No invoices in these dates'); return; }
+  downloadFile(`invoices-${INV.from}-to-${INV.to}.csv`, toCsv([
+    ['Date', 'Invoice no', 'Store', 'Status', 'Sub-total', 'Freight', 'Fuel levy', 'Total', 'Credits', 'Paid', 'Balance', 'Payment mode'],
+    ...rows.map(x => [x.date, x.no, x.store.name, x.inv ? (x.payStatus ? PAY_STATUS[x.payStatus].label : 'Issued') : INV_STATUS[x.status].label,
+      x.inv ? Number(x.inv.subtotal) : x.live ?? 0, x.inv ? Number(x.inv.freight) : 0, x.inv ? Number(x.inv.fuel_levy) : 0,
+      x.total, x.credit, x.paid, x.payStatus ? x.balance : x.net, PAY_MODE_NAMES[x.inv?.payment_mode || x.store.payment_mode] || '']),
+  ]), 'text/csv');
+}
+
+async function exportPaymentsCsv() {
+  const { data, error } = await sb.from('customer_payments').select('*').gte('paid_on', INV.from).lte('paid_on', INV.to);
+  if (error) { showToast('⚠️ ' + friendlyError(error)); return; }
+  if (!data.length) { showToast('No payments in these dates'); return; }
+  downloadFile(`payments-${INV.from}-to-${INV.to}.csv`, toCsv([
+    ['Date', 'Store', 'Amount', 'Method', 'Reference'],
+    ...data.sort((a, b) => (a.paid_on < b.paid_on ? -1 : a.paid_on > b.paid_on ? 1 : a.id - b.id))
+      .map(p => [p.paid_on, storeById(p.store_id).name, Number(p.amount), PAY_MODE_NAMES[p.method] || p.method, p.reference || '']),
+  ]), 'text/csv');
 }
 
 // Business details for the PDF, or null (with a message) if not set up
@@ -360,6 +594,7 @@ const invKey = (s, d) => `${Number(s)}|${d}`;
 
 const INV_STATUS = {
   issued:    { label: 'Issued',          cls: 'ok' },
+  sent:      { label: 'Sent',            cls: 'ok' },
   draft:     { label: 'Not issued',      cls: 'draft' },
   untracked: { label: 'Before tracking', cls: 'muted' },
 };
@@ -526,7 +761,7 @@ function renderInvoiceList() {
   let html = '', day = '';
   for (const x of rows) {
     if (x.date !== day) { day = x.date; html += `<div class="inv-day">${dayLabel(day)}</div>`; }
-    const st = INV_STATUS[x.status];
+    const st = INV_STATUS[x.inv?.sent_at ? 'sent' : x.status];
     html += `<div class="inv-item${INV.open === x.key ? ' open' : ''}" data-key="${x.key}">
       <div class="inv-row" onclick="toggleInvoice('${x.key}')">
         <div class="inv-main">
@@ -566,7 +801,8 @@ function invoiceDetail(x) {
       <button class="inv-btn" onclick="addCredit('${x.key}')">Add credit</button>
     </div>` : ''}
     <div class="inv-actions">
-      ${x.live != null || x.inv ? `<button class="inv-btn" onclick="invoicePdf('${x.key}')">📄 Save PDF</button>` : ''}
+      ${x.live != null || x.inv ? `<button class="inv-btn" onclick="invoicePdf('${x.key}')">📄 Save PDF</button>
+        <button class="inv-btn" onclick="shareInvoice('${x.key}')">📤 Share</button>` : ''}
       ${isAdmin() && x.inv ? `<button class="inv-btn" onclick="unlockInvoice('${x.key}')">🔓 Unlock</button>` : ''}
     </div>
   </div>`;
@@ -755,6 +991,7 @@ function customerDetail(x) {
     <div class="inv-opening">Opening balance (owed on ${ACCOUNTS_START ? auDate(ACCOUNTS_START) : 'the start date'})
       <input type="number" inputmode="decimal" step="0.01" min="0" id="openingAmount" value="${x.opening ? x.opening.toFixed(2) : ''}" placeholder="$0.00">
       <button class="inv-btn" onclick="saveOpening(${x.storeId})">Save</button></div>
+    <div class="inv-actions"><button class="inv-btn" onclick="sendStatements(${x.storeId})">📄 Statement for the dates above</button></div>
   </div>`;
 }
 

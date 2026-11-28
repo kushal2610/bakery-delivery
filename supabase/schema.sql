@@ -19,7 +19,7 @@
 --     business details (invoices)   edit    view    view
 --     production (what was baked)   edit    edit     -
 --     store routes (1 = MWF, 2 = TTS) edit  view    view
---     saved invoices                view    view    view   (saved by issue_invoices())
+--     saved invoices                view    view    view   (saved by issue_invoices(); admin/baker mark sent)
 --     invoice credits               edit    add     view   (only admins remove)
 --     customer payments, balances   edit     -       -     (invoice_balances(), store_accounts())
 --
@@ -647,6 +647,23 @@ revoke execute on function public.unlock_invoice(bigint) from public, anon;
 grant  execute on function public.unlock_invoice(bigint) to authenticated;
 revoke execute on function public.store_day_totals(date, date) from public, anon;
 grant  execute on function public.store_day_totals(date, date) to authenticated;
+
+-- Admin/baker: note that invoices were shared with the store (first time only)
+create or replace function public.mark_invoices_sent(p_ids bigint[])
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(public.app_role(), '') not in ('admin', 'baker') then
+    raise exception 'Not allowed' using errcode = '42501';
+  end if;
+  update public.invoices set sent_at = now() where id = any (p_ids) and sent_at is null;
+end;
+$$;
+revoke execute on function public.mark_invoices_sent(bigint[]) from public, anon;
+grant  execute on function public.mark_invoices_sent(bigint[]) to authenticated;
 
 -- Customer payments and opening balances (admin only). Nothing records which
 -- invoice a payment was for: each store's payments pay off its opening
