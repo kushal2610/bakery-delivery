@@ -85,13 +85,16 @@
 
 
   /* ── TABS ── */
+  /* Seven tabs (admin) don't fit a phone: the bar scrolls sideways */
   .tabs {
     display: flex; background: var(--brown);
     border-top: 1px solid rgba(255,255,255,0.1);
+    overflow-x: auto; scrollbar-width: none;
   }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab {
-    flex: 1; text-align: center;
-    padding: 10px 4px 12px;
+    flex: 1 0 auto; text-align: center;
+    padding: 10px 7px 12px;
     font-size: 11px; font-weight: 600;
     color: rgba(255,255,255,0.5);
     cursor: pointer; transition: all .2s;
@@ -610,6 +613,53 @@
   .prod-status.ok    { color: var(--green); background: var(--green-bg); }
   .prod-status.short { color: var(--red);   background: var(--red-bg); }
 
+  /* ── INVOICES TAB ── */
+  .inv-filters { padding: 12px 16px 4px; display: flex; flex-direction: column; gap: 8px; }
+  .inv-range { display: flex; gap: 8px; align-items: center; }
+  .inv-range label { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+  .inv-range input[type=date], .inv-range select, .inv-start input, .inv-credit-form input {
+    width: 100%; padding: 9px 10px; border: 1.5px solid var(--border); border-radius: 10px;
+    font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--brown); background: #fff;
+  }
+  .inv-range .search-field { flex: 2; }
+  .inv-range select { flex: 1; width: auto; }
+  .inv-quick { display: flex; gap: 6px; }
+  .inv-quick button, .inv-btn {
+    padding: 7px 12px; border-radius: 20px; border: 1.5px solid var(--border); background: #fff; cursor: pointer;
+    font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--brown); white-space: nowrap;
+  }
+  .inv-start { margin: 8px 16px 0; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .inv-start.warn { padding: 10px 12px; border-radius: 12px; background: #FFF8E6; color: #7a5b12; }
+  .inv-start-row { display: flex; gap: 8px; align-items: center; }
+  .inv-start input { width: auto; padding: 6px 8px; font-size: 14px; }
+  .inv-summary { padding: 0 16px 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .inv-list { padding: 0 16px; }
+  .inv-day { margin: 14px 0 6px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .inv-item { background: var(--warm-white); border: 1.5px solid var(--border); border-radius: 14px; margin-bottom: 8px; overflow: hidden; }
+  .inv-item.open { border-color: var(--brown); }
+  .inv-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; }
+  .inv-main { min-width: 0; }
+  .inv-store { font-size: 15px; font-weight: 700; color: var(--brown); }
+  .inv-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .inv-amt { text-align: right; font-weight: 700; color: var(--brown); white-space: nowrap; }
+  .inv-amt small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+  .inv-chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 2px; }
+  .inv-chip.ok { background: var(--green-bg); color: var(--green); }
+  .inv-chip.draft { background: #FFF3D6; color: #8a6510; }
+  .inv-chip.muted { background: var(--cream); color: var(--muted); }
+  .inv-chip.bad { background: var(--red-bg); color: var(--red); }
+  .inv-detail { padding: 0 14px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+  .inv-note { margin-top: 10px; font-size: 13px; color: #7a5b12; }
+  .inv-lines { margin-top: 10px; font-size: 14px; }
+  .inv-lines > div { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+  .inv-credit { color: var(--green); }
+  .inv-net { font-weight: 700; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px !important; }
+  .inv-x { border: none; background: none; color: var(--red); font-size: 14px; cursor: pointer; padding: 0 0 0 6px; }
+  .inv-credit-form { display: grid; grid-template-columns: 90px 1fr; gap: 6px; }
+  .inv-credit-form button { grid-column: 1 / -1; }
+  .inv-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .inv-empty { padding: 30px 0; text-align: center; color: var(--muted); font-size: 14px; }
+
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
@@ -704,6 +754,9 @@
     <div class="tab" onclick="showPage('production')" id="tab-production" data-roles="admin baker">
       <span class="tab-icon">🥖</span>Bake
     </div>
+    <div class="tab" onclick="showPage('invoices')" id="tab-invoices" data-roles="admin baker">
+      <span class="tab-icon">🧾</span>Invoices
+    </div>
     <div class="tab" onclick="showPage('products')" id="tab-products" data-roles="admin">
       <span class="tab-icon">🧁</span>Products
     </div>
@@ -772,6 +825,44 @@
   </div>
 
   <div class="route-list" id="routeList"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     INVOICES (admin + baker) — code in invoicing.js
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-invoices">
+  <div class="inv-filters">
+    <div class="inv-range">
+      <label>From <input type="date" id="invFrom" onchange="loadInvoicesPage()"></label>
+      <label>To <input type="date" id="invTo" onchange="loadInvoicesPage()"></label>
+    </div>
+    <div class="inv-quick">
+      <button onclick="setInvoiceRange('week')">This week</button>
+      <button onclick="setInvoiceRange('lastweek')">Last week</button>
+      <button onclick="setInvoiceRange('month')">This month</button>
+    </div>
+    <div class="inv-range">
+      <div class="search-field">
+        <input type="search" id="invoices-search" class="search-input" placeholder="Search store"
+          autocomplete="off" enterkeyhint="search" aria-label="Search stores"
+          oninput="renderInvoiceList()" onkeydown="if (event.key === 'Enter') this.blur()">
+        <button class="search-clear" onclick="clearInvoiceSearch()" aria-label="Clear search" hidden>✕</button>
+      </div>
+      <select id="invStatus" onchange="renderInvoiceList()" aria-label="Status">
+        <option value="all">All</option>
+        <option value="draft">Not issued</option>
+        <option value="issued">Issued</option>
+        <option value="changed">Order changed</option>
+      </select>
+    </div>
+  </div>
+  <div id="invStart" class="inv-start"></div>
+  <div class="route-actions">
+    <button class="route-btn btn-dark" onclick="invoicesBulk('save')">📄 Save PDF</button>
+    <button class="route-btn btn-dark" onclick="invoicesBulk('print')">🖨 Print</button>
+  </div>
+  <div class="inv-summary" id="invSummary"></div>
+  <div class="inv-list" id="invList"></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════
@@ -1276,8 +1367,8 @@ const money = n => (Number(n) || 0).toLocaleString('en-AU', { style: 'currency',
 
 // What each role sees and may do (the database enforces the same rules)
 const ROLE_TABS = {
-  admin:  ['orders', 'route', 'totals', 'production', 'products', 'stores'],
-  baker:  ['production', 'orders', 'route', 'totals'],  // first = start page
+  admin:  ['orders', 'route', 'totals', 'production', 'invoices', 'products', 'stores'],
+  baker:  ['production', 'orders', 'route', 'totals', 'invoices'],  // first = start page
   driver: ['route', 'totals'],
 };
 const validRole = r => (typeof r === 'string' && Object.hasOwn(ROLE_TABS, r) ? r : null);
@@ -1329,7 +1420,11 @@ function productsSubtotal(storeId) {
 // Freight when the products come to less than the threshold, and the fuel
 // levy, on every store that has an order that day
 function deliveryCharges(storeId, subtotal = productsSubtotal(storeId)) {
-  if (!orderTotal(orders[storeId])) return [];
+  return orderTotal(orders[storeId]) ? chargesFor(subtotal) : [];
+}
+
+// The charges on a delivery whose products come to `subtotal`
+function chargesFor(subtotal) {
   const charges = [];
   if (CHARGES.freight_fee > 0 && subtotal < CHARGES.freight_under) charges.push({ label: 'Freight', amount: CHARGES.freight_fee });
   if (CHARGES.fuel_levy > 0) charges.push({ label: 'Fuel levy', amount: CHARGES.fuel_levy });
@@ -1666,233 +1761,6 @@ function formatDeliveryDate(d) {
   return d.toLocaleDateString('en-AU', {
     weekday:'long', day:'numeric', month:'long', year:'numeric'
   });
-}
-
-// ── INVOICES ─────────────────────────────────────────────────────────────────
-const LOGO_URL = 'gj06-logo.png';
-
-// Invoice number from the delivery date and store: 16 Nov 2026, store 12 ->
-// "261116-012". Unique per store and day, and the same on every reprint.
-function invoiceNumber(iso, storeId) {
-  return `${iso.slice(2).replaceAll('-', '')}-${String(storeId).padStart(3, '0')}`;
-}
-
-const auDate = iso => iso.split('-').reverse().join('/');  // 2026-11-16 -> 16/11/2026
-
-// Everything printed on one store's invoice (amounts as numbers)
-function invoiceData(store, lines, biz, iso) {
-  const no = invoiceNumber(iso, store.id);
-  const subtotal = lines.reduce((sum, { l }) => sum + l.amount, 0);
-  const charges = deliveryCharges(store.id, subtotal);
-  const total = charges.reduce((sum, c) => sum + c.amount, subtotal);
-  const has = (label, v) => (v ? `${label}${v}` : '');
-  return {
-    no,
-    date: auDate(iso),
-    from: { name: biz.business_name, lines: [biz.address, has('Phone: ', biz.phone), has('ABN: ', biz.abn)].filter(Boolean) },
-    to: [store.contact_name, store.name, store.address || store.area, has('Phone: ', store.phone), has('ABN: ', store.abn)].filter(Boolean),
-    rows: lines.map(({ p, l }) => ({ name: p.name, unpriced: l.price == null, qty: l.qty, price: l.price, amount: l.amount })),
-    sums: [
-      ['Sub-total', subtotal],
-      ...charges.map(c => [c.label, c.amount]),
-      ['Tax (GST-free)', 0],
-    ],
-    due: total,
-    paymentMode: PAY_MODE_NAMES[store.payment_mode] || 'Cash',
-    bank: [['Bank:', biz.bank_name], ['Name:', biz.account_name], ['BSB:', biz.bsb], ['Account:', biz.account_no]].filter(([, v]) => v),
-  };
-}
-
-// The logo file as a data URL for the PDF (null if it can't be loaded)
-async function logoDataUrl() {
-  try {
-    const res = await fetch(LOGO_URL);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-  } catch (_) { return null; }
-}
-
-// One A4 page (mm). Standard PDF fonts only cover Western characters.
-function drawInvoice(doc, inv, logo) {
-  const L = 16, R = 194, W = R - L;
-  const ink = () => doc.setTextColor(17, 17, 17);
-  const font = (style, size) => { doc.setFont('helvetica', style); doc.setFontSize(size); };
-  const pdfText = s => String(s ?? '').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
-  const fit = (s, w) => doc.splitTextToSize(pdfText(s), w)[0] || '';
-
-  // Title + logo
-  ink(); font('normal', 30);
-  doc.text('INVOICE', L, 34, { charSpace: 3 });
-  if (logo) { try { doc.addImage(logo, 'PNG', R - 40, 12, 40, 40 * 880 / 960, 'logo'); } catch (_) {} }
-
-  // From / Billed To
-  let yL = 62, yR = 62;
-  font('bold', 12); doc.text(fit(inv.from.name, 100), L, yL); yL += 6;
-  font('normal', 10); inv.from.lines.forEach(s => { doc.text(fit(s, 100), L, yL); yL += 5; });
-  font('bold', 12); doc.text('Billed To', R, yR, { align: 'right' }); yR += 6;
-  font('normal', 10); inv.to.forEach(s => { doc.text(fit(s, 75), R, yR, { align: 'right' }); yR += 5; });
-
-  // Invoice no / issue date / due date
-  let y = Math.max(yL, yR) + 4;
-  doc.setDrawColor(204, 204, 204); doc.setLineWidth(0.3);
-  doc.rect(L, y, W, 14);
-  [['INVOICE NO', inv.no], ['ISSUE DATE', inv.date], ['DUE DATE', 'C.O.D.']].forEach(([label, value], i) => {
-    const x = L + i * W / 3;
-    if (i) doc.line(x, y, x, y + 14);
-    font('normal', 7); doc.setTextColor(102, 102, 102); doc.text(label, x + 4, y + 5, { charSpace: 0.3 });
-    font('bold', 11); ink(); doc.text(value, x + 4, y + 11);
-  });
-  y += 22;
-
-  // Lines
-  const col = { qty: 120, price: 157, total: R - 4 };
-  const header = () => {
-    doc.setFillColor(26, 26, 26); doc.rect(L, y, W, 9, 'F');
-    font('bold', 10); doc.setTextColor(255, 255, 255);
-    doc.text('Description', L + 4, y + 6);
-    doc.text('Qty', col.qty, y + 6, { align: 'center' });
-    doc.text('Price', col.price, y + 6, { align: 'right' });
-    doc.text('Total', col.total, y + 6, { align: 'right' });
-    y += 9;
-  };
-  header();
-  inv.rows.forEach((row, i) => {
-    if (y > 262) { doc.addPage(); y = 20; header(); }
-    if (i % 2) { doc.setFillColor(236, 236, 236); doc.rect(L, y, W, 8, 'F'); }
-    font('normal', 10); ink();
-    const name = fit(row.name, row.unpriced ? 62 : 90);
-    doc.text(name, L + 4, y + 5.5);
-    if (row.unpriced) {
-      const nameW = doc.getTextWidth(name);
-      doc.setTextColor(183, 121, 31); doc.setFontSize(8.5);
-      doc.text('(no price set)', L + 4 + nameW + 2, y + 5.5);
-      ink(); doc.setFontSize(10);
-    }
-    doc.text(String(row.qty), col.qty, y + 5.5, { align: 'center' });
-    doc.text(row.unpriced ? '-' : money(row.price), col.price, y + 5.5, { align: 'right' });
-    doc.text(money(row.amount), col.total, y + 5.5, { align: 'right' });
-    y += 8;
-  });
-
-  // How to pay + sums (moved to a new page if they don't fit)
-  const sumsH = inv.sums.length * 6 + 26;
-  const payH = inv.bank.length ? (inv.bank.length + 2) * 5 + 7 : 7;
-  if (y + 9 + Math.max(sumsH, payH) > 255) { doc.addPage(); y = 20; } else y += 9;
-  let yp = y + 4;
-  font('bold', 12.5); ink(); doc.text('How to pay', L, yp); yp += 6;
-  font('normal', 10);
-  if (inv.bank.length) {
-    doc.text('Bank deposit', L, yp); yp += 5;
-    [...inv.bank, ['Reference:', inv.no]].forEach(([k, v]) => {
-      font('bold', 10); doc.text(k, L, yp);
-      font('normal', 10); doc.text(fit(v, 60), L + 25, yp); yp += 5;
-    });
-  }
-  const sx = R - 78;
-  let ys = y + 4;
-  font('normal', 10); ink();
-  inv.sums.forEach(([label, amount]) => {
-    doc.text(label, sx + 4, ys);
-    doc.text(money(amount), R - 4, ys, { align: 'right' });
-    ys += 6;
-  });
-  doc.setFillColor(26, 26, 26); doc.rect(sx, ys - 2, 78, 11, 'F');
-  font('bold', 13); doc.setTextColor(255, 255, 255);
-  doc.text('Balance due', sx + 4, ys + 5.3);
-  doc.text(money(inv.due), R - 4, ys + 5.3, { align: 'right' });
-  // The store's payment mode, highlighted the same way
-  doc.setFillColor(26, 26, 26);  // (white text above also changed the fill colour)
-  doc.rect(sx, ys + 11, 78, 11, 'F');
-  doc.text('Payment mode', sx + 4, ys + 18.3);
-  doc.text(inv.paymentMode, R - 4, ys + 18.3, { align: 'right' });
-
-  // Thank you + footer at the bottom of the page
-  ink(); font('italic', 24);
-  doc.text('Thank You', 105, 266, { align: 'center' });
-  doc.setDrawColor(204, 204, 204); doc.line(L, 274, R, 274);
-  font('normal', 8.5); doc.setTextColor(102, 102, 102);
-  doc.text(`Invoice no: ${inv.no}`, L, 279);
-  doc.text('Due date: C.O.D.', 105, 279, { align: 'center' });
-  doc.text(`Balance due: ${money(inv.due)}`, R, 279, { align: 'right' });
-}
-
-function savePdfFile(doc, filename) { doc.save(filename); }
-
-// Phones and tablets can't print a PDF from inside the page: they save it
-const isMobileDevice = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-// Computer: print the PDF from a hidden frame (prints the PDF itself, so no
-// web address or page numbers are added). Returns false if that isn't possible.
-let _printFrame = null;
-function printPdfBlob(blob) {
-  _printFrame?.remove();
-  const frame = _printFrame = document.createElement('iframe');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
-  frame.src = URL.createObjectURL(blob);
-  return new Promise(resolve => {
-    frame.onload = () => {
-      try { frame.contentWindow.focus(); frame.contentWindow.print(); resolve(true); } catch (_) { resolve(false); }
-    };
-    document.body.append(frame);
-  });
-}
-
-// Route tab: one A4 invoice per store with orders on the selected date, in
-// delivery order, all in one PDF. A PDF (not the web page) is printed so
-// iPhone Safari doesn't add the web address, date and page numbers.
-async function printInvoices() {
-  if (!currentUser || !sb) return;
-  if (typeof window.jspdf === 'undefined') { showToast('PDF library loading, try again in a moment...'); return; }
-  const btn = document.getElementById('printInvoicesBtn');
-  const date = currentDate;
-  btn.disabled = true;
-  btn.textContent = 'Preparing…';
-  try {
-    await reloadDay();  // latest quantities and prices
-    if (date !== currentDate) return;
-    const stops = orderedStores();
-    if (!stops.length) { showToast('No orders for this date'); return; }
-    const { data: biz, error } = await sb.from('business_settings').select('*').eq('id', 1).maybeSingle();
-    if (error || !biz?.business_name) {
-      showToast(error
-        ? '⚠️ Could not load business details. Re-run supabase/schema.sql.'
-        : '⚠️ Business details are empty. Run business_details.sql in Supabase.');
-      return;
-    }
-    const invoices = stops
-      .map(store => ({ store, lines: PRODUCTS.map(p => ({ p, l: invoiceLine(store.id, p.id) })).filter(x => x.l) }))
-      .filter(inv => inv.lines.length);
-    if (!invoices.length) { showToast('⚠️ Invoice prices unavailable. Re-run supabase/schema.sql.'); return; }
-    const unpriced = invoices.reduce((n, inv) => n + inv.lines.filter(x => x.l.price == null).length, 0);
-    if (unpriced && !confirm(`${unpriced} order line${unpriced > 1 ? 's have' : ' has'} no price and will print as $0.00. Print anyway?`)) return;
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    doc.setProperties({ title: `Invoices ${auDate(date)}` });
-    const logo = await logoDataUrl();
-    invoices.forEach((inv, i) => {
-      if (i) doc.addPage();
-      drawInvoice(doc, invoiceData(inv.store, inv.lines, biz, date), logo);
-    });
-    const filename = `invoices-${date}.pdf`;
-    if (isMobileDevice()) {
-      savePdfFile(doc, filename);
-      showToast('📄 Invoices saved. Open the PDF, then Share → Print');
-    } else if (!(await printPdfBlob(doc.output('blob')))) {
-      savePdfFile(doc, filename);
-      showToast('📄 Invoices saved as a PDF. Open it to print');
-    }
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🖨 Print invoices';
-  }
 }
 
 function savePDF() {
@@ -2271,11 +2139,17 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById(`page-${name}`).classList.add('active');
-  document.getElementById(`tab-${name}`).classList.add('active');
+  const tab = document.getElementById(`tab-${name}`);
+  tab.classList.add('active');
+  const bar = tab.parentElement;  // scroll the tab bar (not the page) to show it
+  if (tab.offsetLeft < bar.scrollLeft || tab.offsetLeft + tab.offsetWidth > bar.scrollLeft + bar.clientWidth) {
+    bar.scrollLeft = tab.offsetLeft - (bar.clientWidth - tab.offsetWidth) / 2;
+  }
   if (name === 'route')  updateRoutePage();
   if (name === 'totals' || name === 'production') updateTotalsPage();
   if (name === 'products') buildProductsPage();
   if (name === 'stores') buildStoresPage();
+  if (name === 'invoices') showInvoicesPage();
 }
 
 // ── RESET ────────────────────────────────────────────────────────────────────
@@ -3508,5 +3382,6 @@ setTimeout(() => {
 }, 3000);
 
 </script>
+<script src="invoicing.js"></script>
 </body>
 </html>

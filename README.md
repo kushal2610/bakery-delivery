@@ -56,6 +56,8 @@ old `staff` role become `driver`) and keeps all data.
 |---|:---:|:---:|:---:|
 | See order quantities, route, Save PDF | ✓ | ✓ | ✓ |
 | Print invoices (Route tab) | ✓ | ✓ | ✓ |
+| **Invoices** tab: find, save and print invoices, give credits | ✓ | ✓ | |
+| Set when invoice tracking starts, unlock an invoice, remove a credit | ✓ | | |
 | Enter / change order quantities | ✓ | | |
 | Record what was baked (**Bake** tab) | ✓ | ✓ | |
 | Store invoices: each store's products, prices and total, plus the day total (**Bake** tab) | ✓ | ✓ | |
@@ -64,8 +66,9 @@ old `staff` role become `driver`) and keeps all data.
 | Add / edit / remove stores and products, reorder stores | ✓ | | |
 | Clear all quantities for a date | ✓ | | |
 
-Tabs: the admin sees all six. The baker starts on **Bake** and also gets
-Orders, Route (read-only) and Totals. The driver gets Route and Totals.
+Tabs: the admin sees all seven (on a phone the tab bar scrolls sideways).
+The baker starts on **Bake** and also gets Orders, Route (read-only), Totals
+and Invoices. The driver gets Route and Totals.
 
 If someone sees the wrong tabs, check their role: tap the initial in the top
 bar, or run `select u.email, p.role from auth.users u join public.profiles p
@@ -126,14 +129,37 @@ date and page numbers.
   Change them in Supabase → SQL Editor, for example to stop the fuel levy:
   `update public.business_settings set fuel_levy = 0 where id = 1;`
   (0 turns a charge off). The app picks up the change when it's next opened.
-  Charges use the current setting, so reprinting an old day uses today's
-  charges.
+  An invoice not yet saved uses the current setting; a saved invoice keeps
+  the charges it was saved with (see Saved invoices below).
 - **Tax** prints as "Tax (GST-free) $0.00", and the due date is **C.O.D.**
 - **Payment mode:** each store is Cash or Online (Stores → edit store; new
   and existing stores start on Cash). It prints in a dark bar under Balance
   due. The balance due is always the full amount; Totals splits the day's
   sales into Cash and Online by each store's payment mode.
 - If any line has no price, the app asks before printing (it prints as $0.00).
+
+### Saved invoices and the Invoices tab
+
+- **Start date.** In **Invoices**, the admin sets the date invoice tracking
+  starts (the cut-over from MYOB). Days before it are never saved and count as
+  settled.
+- **Saving ("issued").** From the start date, an invoice is saved the first
+  time it's printed or saved as a PDF (from Route or Invoices). Until then it
+  follows the order (**Not issued**). Once saved (**Issued**) it keeps its
+  lines, prices and charges, even if the order, a price or a product name
+  changes later.
+- **Order changed.** If an order changes after its invoice was saved, the
+  invoice is flagged **Order changed** and still prints as saved. Fix it with
+  a credit, or (admin) **Unlock** it so it follows the order again until it's
+  next printed. Route → Print invoices also warns before printing these.
+- **Credits** (admin and baker): open an invoice, type the amount and a reason
+  (e.g. "2 packs returned"). Credits print on the invoice and reduce its
+  balance. A credit can't be more than the balance. Only the admin can remove
+  one. Unlocking keeps the credits.
+- **Find invoices** by date range (This week / Last week / This month or any
+  dates), store name and status. **Save PDF** / **Print** make one PDF of the
+  whole list as shown (oldest day first, each day in delivery order); the
+  button on one invoice saves just that invoice.
 
 ## Production check
 

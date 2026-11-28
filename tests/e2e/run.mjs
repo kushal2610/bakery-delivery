@@ -32,7 +32,7 @@ writeFileSync(join(out, 'app.html'),
 writeFileSync(join(out, 'unconfigured.html'),
   setConfig(mocked, 'https://YOUR-PROJECT-REF.supabase.co', 'YOUR-ANON-OR-PUBLISHABLE-KEY'));
 for (const f of ['mock_supabase.js', 'tests.js']) copyFileSync(join(here, f), join(out, f));
-copyFileSync(join(root, 'gj06-logo.png'), join(out, 'gj06-logo.png'));
+for (const f of ['gj06-logo.png', 'invoicing.js']) copyFileSync(join(root, f), join(out, f));
 // Serve out/ over http (like the real site; file:// pages can't load the logo)
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png' };
 const server = createServer((req, res) => {
@@ -119,6 +119,13 @@ await signInAs('owner@test.com', 'route');
 await shot('route-admin.png');
 await evaluate(`(async () => { showPage('stores'); openEditStore(3); await new Promise(r => setTimeout(r, 200)); })()`);
 await shot('store-form.png');
+await evaluate(`(async () => {
+  closeStoreModal(); showPage('invoices');
+  document.getElementById('invFrom').value = currentDate; document.getElementById('invTo').value = currentDate;
+  await loadInvoicesPage(); INV.open = null; toggleInvoice('7|' + currentDate); window.scrollTo(0, 0);
+  await new Promise(r => setTimeout(r, 200));
+})()`);
+await shot('invoices-admin.png');
 // The invoices PDF exactly as the app makes it
 const pdfB64 = await evaluate(`(async () => {
   closeStoreModal(); window.confirm = () => true;

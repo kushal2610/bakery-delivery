@@ -29,8 +29,7 @@ window.runTests = async function () {
   window.confirm = () => confirmAnswer;
   const pdfPages = () => (lastPdf?.match(/\/Type \/Page[^s]/g) || []).length;
   const pdfHas = s => !!lastPdf?.includes(`(${String(s).replace(/[()\\]/g, '\\$&')})`);
-  const invData = storeId => invoiceData(STORES.find(s => s.id === storeId),
-    PRODUCTS.map(p => ({ p, l: invoiceLine(storeId, p.id) })).filter(x => x.l), M.db.business_settings[0], currentDate);
+  const invData = async storeId => invoiceData((await invoiceRecs([{ storeId, date: currentDate }], false))[0], M.db.business_settings[0]);
   const invSum = (inv, label) => { const r = inv.sums.find(([l]) => l === label); return r ? money(r[1]) : ''; };
 
   async function login(email) {
@@ -50,7 +49,7 @@ window.runTests = async function () {
     await login('owner@test.com');
     const D = currentDate;
     const yymmdd = D.slice(2).replaceAll('-', '');
-    ok('admin: all 6 tabs, starts on Orders', visibleTabs() === 'orders,route,totals,production,products,stores' && activePage() === 'orders', [visibleTabs(), activePage()]);
+    ok('admin: all 7 tabs, starts on Orders', visibleTabs() === 'orders,route,totals,production,invoices,products,stores' && activePage() === 'orders', [visibleTabs(), activePage()]);
 
     // logo comes from the file, not an embedded copy
     ok('logo loaded from gj06-logo.png everywhere', $('splashLogo')?.getAttribute('src') === 'gj06-logo.png'
@@ -134,7 +133,7 @@ window.runTests = async function () {
     ok('one PDF printed with one A4 page per store with orders', printCalls === 1 && pdfPages() === 4 && /\/MediaBox \[0 0 595\.2\d* 841\.8\d*\]/.test(lastPdf), [printCalls, pdfPages()]);
     const order = [...lastPdf.matchAll(/\((\d{6}-\d{3})\) Tj/g)].map(m => m[1].slice(-3)).filter((x, i, a) => a.indexOf(x) === i);
     ok('invoices in delivery order (stores 3, 4, 6, 7)', order.join() === '003,004,006,007', order);
-    const inv3 = invData(3), no3 = `${yymmdd}-003`;
+    const inv3 = await invData(3), no3 = `${yymmdd}-003`;
     ok('invoice number = date + store; issue date DD/MM/YYYY; due C.O.D.', inv3.no === no3 && pdfHas(no3)
       && pdfHas(D.split('-').reverse().join('/')) && pdfHas('C.O.D.'));
     ok('business details from the database', pdfHas('Test Bakery (Example)') && pdfHas('Phone: 0400 000 000') && pdfHas('ABN: 11 111 111 111'));
@@ -148,10 +147,10 @@ window.runTests = async function () {
     ok('payment mode bar under balance due: Cash', inv3.paymentMode === 'Cash' && pdfHas('Payment mode') && pdfHas('Cash'));
     ok('bank details with invoice number as reference', ['Bank deposit', 'Example Bank', '000-000', '12345678', 'Reference:'].every(pdfHas));
     ok('footer: number, due date, balance', pdfHas(`Invoice no: ${no3}`) && pdfHas('Due date: C.O.D.') && pdfHas('Balance due: $30.00'));
-    const inv7 = invData(7);
+    const inv7 = await invData(7);
     ok('special price on the invoice; Online store -> payment mode Online', inv7.rows[0].price === 2.5 && inv7.rows[0].amount === 5 && money(inv7.due) === '$5.00'
       && inv7.paymentMode === 'Online' && pdfHas('Online') && pdfHas('$2.50') && pdfHas('Balance due: $5.00'));
-    const inv6 = invData(6);
+    const inv6 = await invData(6);
     ok('unpriced line marked, prints as $0.00', inv6.rows[0].unpriced && inv6.rows[0].amount === 0 && pdfHas('(no price set)') && pdfHas('Usal Pav'), inv6.rows);
     ok('logo from gj06-logo.png, embedded once for all pages', (lastPdf.match(/\/Subtype \/Image/g) || []).length === 1);
     ok('no web page printed (nothing for the browser to add a web address to)', !document.getElementById('printArea') && typeof invoiceHtml === 'undefined');
@@ -182,7 +181,7 @@ window.runTests = async function () {
     ok('charges off: invoice has no charge rows', storeAmount(7) === 5 && deliveryCharges(7).length === 0 && !pdfHas('Fuel levy'));
     await setCharges(2, 5, 30);
     await printInvoices();
-    const c3 = invData(3), c7 = invData(7);
+    const c3 = await invData(3), c7 = await invData(7);
     ok('$5 order (under $30): sub-total, freight $5, fuel levy $2, balance $12',
       invSum(c7, 'Sub-total') === '$5.00' && invSum(c7, 'Freight') === '$5.00' && invSum(c7, 'Fuel levy') === '$2.00' && money(c7.due) === '$12.00'
       && pdfHas('Freight') && pdfHas('Fuel levy') && pdfHas('Balance due: $12.00'), c7.sums);
@@ -195,6 +194,78 @@ window.runTests = async function () {
     ok('fuel levy off (0): freight only', JSON.stringify(deliveryCharges(7)) === JSON.stringify([{ label: 'Freight', amount: 5 }]));
     await setCharges(0, 0, 0);
 
+    // ── Invoices tab: cut-over, credits, issuing, locking, unlocking
+    const k7 = `7|${D}`, k3 = `3|${D}`;
+    const invRow = key => INV.rows.find(x => x.key === key);
+    const openInv = async () => { showPage('invoices'); $('invFrom').value = D; $('invTo').value = D; await loadInvoicesPage(); };
+    await openInv();
+    ok('Invoices: one row per store with orders; before tracking until a start date is set',
+      INV.rows.length === 4 && INV.rows.every(x => x.status === 'untracked') && $('invStart').classList.contains('warn'), INV.rows.map(x => x.status));
+    $('invStartDate').value = D;
+    await saveAccountsStart();
+    ok('admin sets the tracking start date', M.db.business_settings[0].accounts_start === D && ACCOUNTS_START === D);
+    ok('from the start date: not issued yet', INV.rows.every(x => x.status === 'draft') && /4 not issued/.test($('invSummary').textContent), $('invSummary').textContent);
+    toggleInvoice(k7);
+    ok('open invoice: total, credit form, Save PDF; no Unlock before issuing', !!document.querySelector('.inv-detail #crAmount')
+      && /Save PDF/.test(text(document.querySelector('.inv-actions'))) && !/Unlock/.test(text(document.querySelector('.inv-actions'))));
+    $('crAmount').value = '9'; $('crReason').value = 'too much';
+    await addCredit(k7);
+    ok('credit more than the invoice is refused', /can't be more than \$5\.00/.test(toast()) && M.db.invoice_credits.length === 0, toast());
+    $('crAmount').value = '2'; $('crReason').value = 'returned';
+    await addCredit(k7);
+    ok('credit saved and shown: balance $5 - $2 = $3', M.db.invoice_credits.length === 1 && M.db.invoice_credits[0].amount === 2
+      && invRow(k7).net === 3 && /Credit: returned/.test(text(document.querySelector('.inv-detail'))), invRow(k7));
+
+    showPage('route');
+    lastPdf = null;
+    await printInvoices();
+    ok('printing from Route issues the day\'s invoices', M.db.invoices.length === 4 && M.db.invoice_lines.length === 4, M.db.invoices.length);
+    ok('credit printed on the invoice', pdfHas('Credit: returned') && pdfHas('-$2.00') && pdfHas('Balance due: $3.00'));
+    await openInv();
+    ok('Invoices: now issued', INV.rows.every(x => x.status === 'issued') && invRow(k7).inv.total === 5);
+
+    // the order changes after issuing: the invoice keeps its amounts
+    showPage('orders');
+    changeQty(7, '1', 1); changeQty(7, '1', 1);
+    await until(() => !pending.size && dbQty(D, 7, 1) === 4);
+    await openInv();
+    ok('order changed after issuing: flagged, amounts kept', invRow(k7).changed && invRow(k7).total === 5 && !invRow(k3).changed, invRow(k7));
+    showPage('route');
+    confirmAnswer = false; lastPdf = null;
+    await printInvoices();
+    ok('Route print warns about a changed order (Cancel prints nothing)', lastPdf === null);
+    confirmAnswer = true;
+    await openInv();
+    INV.open = null; toggleInvoice(k7);
+    ok('admin sees Unlock on an issued invoice', /Unlock/.test(text(document.querySelector('.inv-actions'))));
+    await unlockInvoice(k7);
+    ok('unlock: follows the order again, credit kept', !M.db.invoices.some(i => i.store_id === 7) && invRow(k7).status === 'draft'
+      && invRow(k7).total === 10 && invRow(k7).net === 8 && M.db.invoice_credits.length === 1, invRow(k7));
+
+    // Save PDF of one invoice issues it; the filtered list as one PDF
+    let savedName = null;
+    const realSavePdf = window.savePdfFile;
+    window.savePdfFile = (doc, name) => { savedName = name; lastPdf = doc.output(); };
+    await invoicePdf(k7);
+    ok('Save PDF of one invoice: issued and saved', savedName === `invoice-${yymmdd}-007.pdf` && M.db.invoices.some(i => i.store_id === 7 && i.total === 10)
+      && pdfPages() === 1 && pdfHas('Balance due: $8.00'), [savedName, pdfPages()]);
+    $('invoices-search').value = 'hamara';
+    renderInvoiceList();
+    ok('search filters the list', filteredInvoiceRows().length === 1 && document.querySelectorAll('#invList .inv-item').length === 1);
+    await invoicesBulk('save');
+    ok('Save PDF of the filtered list', savedName === `invoices-${D}-to-${D}.pdf` && pdfPages() === 1 && pdfHas('Hamara Gaadi (Kellyville)'), savedName);
+    $('invoices-search').value = '';
+    $('invStatus').value = 'issued'; renderInvoiceList();
+    ok('status filter', filteredInvoiceRows().length === 4);
+    $('invStatus').value = 'all';
+    window.savePdfFile = realSavePdf;
+
+    // put store 7's order back
+    showPage('orders');
+    changeQty(7, '1', -1); changeQty(7, '1', -1);
+    await until(() => !pending.size && dbQty(D, 7, 1) === 2);
+    await unlockInvoice(k7);
+
     // ── routes still work
     showPage('stores');
     openEditStore(4); pickFormRoute(2); await saveStore();
@@ -204,16 +275,24 @@ window.runTests = async function () {
 
     // ════ BAKER ════════════════════════════════════════════════════════
     await login('baker@test.com');
-    ok('baker: tabs Orders/Route/Totals/Bake, starts on Bake', visibleTabs() === 'orders,route,totals,production' && activePage() === 'production', [visibleTabs(), activePage()]);
+    ok('baker: tabs Orders/Route/Totals/Bake/Invoices, starts on Bake', visibleTabs() === 'orders,route,totals,production,invoices' && activePage() === 'production', [visibleTabs(), activePage()]);
     ok('baker: store-wise lines from the server', /2 × 6 Pack @ \$2\.50/.test(text($('pb-7'))) && $('pb-total').textContent === '$67.50');
     ok('baker: no price list loaded', !Object.keys(PRICES.normal).length);
     showPage('route');
     ok('baker: Print invoices button', visible($('printInvoicesBtn')));
     lastPdf = null;
     await printInvoices();
-    const b3 = invData(3);
+    const b3 = await invData(3);
     ok('baker prints the same invoices, with payment modes', pdfPages() === 4 && money(b3.due) === '$30.00'
-      && b3.paymentMode === 'Cash' && invData(7).paymentMode === 'Online' && pdfHas('Balance due: $30.00'), [pdfPages(), b3.sums]);
+      && b3.paymentMode === 'Cash' && (await invData(7)).paymentMode === 'Online' && pdfHas('Balance due: $30.00'), [pdfPages(), b3.sums]);
+    showPage('invoices'); $('invFrom').value = D; $('invTo').value = D; await loadInvoicesPage();
+    INV.open = null; toggleInvoice(`7|${D}`);
+    ok('baker: Invoices tab, sees the credit, no Unlock or remove-credit', INV.rows.length === 4 && INV.rows.every(x => x.status === 'issued')
+      && /Credit: returned/.test(text(document.querySelector('.inv-detail'))) && !document.querySelector('.inv-detail .inv-x')
+      && !/Unlock/.test(text(document.querySelector('.inv-actions'))) && !document.querySelector('#invStartDate'));
+    $('crAmount').value = '1'; $('crReason').value = 'broken pack';
+    await addCredit(`7|${D}`);
+    ok('baker gives a credit', M.db.invoice_credits.length === 2 && M.db.invoice_credits[1].updated_by === 'u-baker');
 
     // ════ DRIVER ═══════════════════════════════════════════════════════
     await login('driver@test.com');
@@ -221,7 +300,7 @@ window.runTests = async function () {
     ok('driver: Save PDF + Print invoices', JSON.stringify([...document.querySelectorAll('#page-route .route-actions button')].map(b => text(b))) === JSON.stringify(['📄 Save PDF', '🖨 Print invoices']));
     lastPdf = null;
     await printInvoices();
-    const d7 = invData(7);
+    const d7 = await invData(7);
     ok('driver prints invoices with store prices', pdfPages() === 4 && d7.rows[0].price === 2.5 && d7.rows[0].qty === 2 && pdfHas('$2.50'), [pdfPages(), d7.rows]);
     Object.assign(M.db.business_settings[0], { fuel_levy: 2, freight_fee: 5, freight_under: 50 });
     await refreshCatalog();

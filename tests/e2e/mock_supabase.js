@@ -24,10 +24,11 @@
       { id: 3, name: 'Usal Pav', icon: '🥙', sort: 3, archived: false },
     ],
     order_items: [], order_item_prices: [], prices: [], deliveries: [], production: [],
+    invoices: [], invoice_lines: [], invoice_credits: [],
     business_settings: [{
       id: 1, business_name: 'Test Bakery (Example)', address: '1 Example St, Testville NSW 2000', phone: '0400 000 000',
       abn: '11 111 111 111', bank_name: 'Example Bank', account_name: 'Test Bakery', bsb: '000-000', account_no: '12345678',
-      fuel_levy: 0, freight_fee: 0, freight_under: 0,
+      fuel_levy: 0, freight_fee: 0, freight_under: 0, accounts_start: null,
     }],
     profiles: [
       { id: 'u-admin', full_name: 'Owner', role: 'admin' },
@@ -44,17 +45,21 @@
     prices: ['product_id', 'store_id'],
     deliveries: ['delivery_date', 'store_id'],
     production: ['production_date', 'product_id'],
+    invoices: ['id'], invoice_lines: ['invoice_id', 'product_id'], invoice_credits: ['id'],
   };
-  const nextId = { stores: 23, products: 4, prices: 1 };
+  const nextId = { stores: 23, products: 4, prices: 1, invoices: 1, invoice_credits: 1 };
   const ANY = ['admin', 'baker', 'driver'];
   const READ = {
     stores: ANY, products: ANY, order_items: ANY, business_settings: ANY,
     prices: ['admin'], order_item_prices: ['admin'], deliveries: ['admin'], production: ['admin', 'baker'],
+    invoices: ANY, invoice_lines: ANY, invoice_credits: ANY,
   };
   const WRITE = {
     stores: ['admin'], products: ['admin'], order_items: ['admin'], prices: ['admin'], deliveries: ['admin'],
     production: ['admin', 'baker'], order_item_prices: [], profiles: [], business_settings: ['admin'],
+    invoices: [], invoice_lines: [], invoice_credits: ['admin', 'baker'],
   };
+  const DELETE = { invoice_credits: ['admin'] };  // who may delete, where it differs from WRITE
   const log = [];
   const channels = new Set();
   const authCbs = [];
@@ -97,7 +102,8 @@
   function writeRow(t, v, op) {
     const existing = op !== 'insert' && db[t].find(r => samePk(t, r, v));
     if (existing) { Object.assign(existing, v); emit(t, existing); if (t === 'prices') afterPriceChange(existing.product_id); return existing; }
-    const defaults = t === 'stores' ? { archived: false, route: 1, contact_name: '', phone: '', abn: '' } : t === 'products' ? { archived: false } : {};
+    const defaults = t === 'stores' ? { archived: false, route: 1, contact_name: '', phone: '', abn: '' } : t === 'products' ? { archived: false }
+      : t === 'invoice_credits' ? { reason: '', created_at: new Date().toISOString(), updated_by: session?.user.id } : {};
     const row = { ...defaults, ...v };
     if (nextId[t] && row.id == null) row.id = nextId[t]++;
     db[t].push(row); emit(t, row); afterInsert(t, row);
@@ -109,7 +115,8 @@
   const badValue = v => ('qty' in v && v.qty < 0) || ('qty_baked' in v && v.qty_baked < 0)
     || ('route' in v && ![1, 2].includes(v.route))
     || ('abn' in v && v.abn !== '' && !/^\d{11}$/.test(String(v.abn).replace(/\s/g, '')))
-    || ('payment_mode' in v && v.payment_mode != null && !['cash', 'online', 'unpaid'].includes(v.payment_mode));
+    || ('payment_mode' in v && v.payment_mode != null && !['cash', 'online', 'unpaid'].includes(v.payment_mode))
+    || ('amount' in v && !(Number(v.amount) > 0));
 
   class Query {
     constructor(t) { this.t = t; this.filters = []; this.op = 'select'; this.ret = false; this.one = null; this.sorts = []; }
@@ -117,6 +124,8 @@
     eq(c, v) { this.filters.push(r => String(r[c]) === String(v)); return this; }
     is(c, v) { this.filters.push(r => (r[c] ?? null) === v); return this; }
     gt(c, v) { this.filters.push(r => r[c] > v); return this; }
+    gte(c, v) { this.filters.push(r => r[c] >= v); return this; }
+    lte(c, v) { this.filters.push(r => r[c] <= v); return this; }
     in(c, a) { this.filters.push(r => a.map(String).includes(String(r[c]))); return this; }
     order(c) { this.sorts.push(c); return this; }
     maybeSingle() { this.one = 'maybe'; return this; }
@@ -149,7 +158,7 @@
           rows.forEach(r => { Object.assign(r, this.vals); emit(t, r); if (t === 'prices') afterPriceChange(r.product_id); });
         }
       } else if (this.op === 'delete') {
-        rows = mayWrite ? db[t].filter(match) : [];
+        rows = (DELETE[t] ?? WRITE[t] ?? []).includes(me) ? db[t].filter(match) : [];
         rows.forEach(r => { db[t].splice(db[t].indexOf(r), 1); emit(t, r, true); if (t === 'prices') afterPriceChange(r.product_id); });
       } else {
         if (!mayWrite) return { data: null, error: rlsError() };
@@ -190,8 +199,48 @@
           return { data: linesFor(args.p_date).map(r => ({ store_id: r.store_id, product_id: r.product_id, qty: r.qty,
             unit_price: r.unit_price, amount: cents(r.qty * (r.unit_price || 0)) })), error: null };
         }
+        if (name === 'store_day_totals') {
+          if (!['admin', 'baker'].includes(me)) return { data: [], error: null };
+          const by = {};
+          db.order_items.filter(r => r.qty > 0 && r.delivery_date >= args.p_from && r.delivery_date <= args.p_to).forEach(r => {
+            const k = r.store_id + '|' + r.delivery_date;
+            const p = db.order_item_prices.find(x => samePk('order_item_prices', x, r))?.unit_price ?? null;
+            const o = by[k] ||= { store_id: r.store_id, delivery_date: r.delivery_date, subtotal: 0, unpriced: 0 };
+            o.subtotal = cents(o.subtotal + r.qty * (p || 0)); if (p == null) o.unpriced++;
+          });
+          return { data: Object.values(by), error: null };
+        }
         log.push({ t: 'rpc', op: name, vals: clone(args), by: session?.user.id });
         if (failWrites > 0) { failWrites--; return { data: null, error: { message: 'TypeError: Failed to fetch' } }; }
+        if (name === 'issue_invoices') {
+          if (!ANY.includes(me)) return { data: null, error: { code: '42501', message: 'Not allowed' } };
+          const s = db.business_settings[0], d = args.p_date, ids = args.p_store_ids;
+          if (s.accounts_start && d >= s.accounts_start) {
+            const by = {};
+            linesFor(d).filter(r => !ids || ids.includes(r.store_id)).forEach(r => (by[r.store_id] ||= []).push(r));
+            for (const [sid, ls] of Object.entries(by)) {
+              const storeId = Number(sid);
+              if (db.invoices.some(i => i.store_id === storeId && i.delivery_date === d)) continue;
+              const sub = cents(ls.reduce((t, l) => t + l.qty * (l.unit_price || 0), 0));
+              const fr = s.freight_fee > 0 && sub < s.freight_under ? s.freight_fee : 0;
+              const inv = { id: nextId.invoices++, store_id: storeId, delivery_date: d,
+                number: d.slice(2).replaceAll('-', '') + '-' + String(storeId).padStart(3, '0'),
+                subtotal: sub, freight: fr, fuel_levy: s.fuel_levy, total: cents(sub + fr + s.fuel_levy),
+                payment_mode: db.stores.find(x => x.id === storeId).payment_mode, issued_at: new Date().toISOString(), sent_at: null };
+              db.invoices.push(inv);
+              ls.forEach(l => db.invoice_lines.push({ invoice_id: inv.id, product_id: l.product_id,
+                product_name: db.products.find(p => p.id === l.product_id).name, qty: l.qty, unit_price: l.unit_price,
+                amount: cents(l.qty * (l.unit_price || 0)) }));
+            }
+          }
+          return { data: clone(db.invoices.filter(i => i.delivery_date === d && (!ids || ids.includes(i.store_id)))), error: null };
+        }
+        if (name === 'unlock_invoice') {
+          if (me !== 'admin') return { data: null, error: { code: '42501', message: 'Only admins can unlock an invoice' } };
+          db.invoices = db.invoices.filter(i => i.id !== args.p_id);
+          db.invoice_lines = db.invoice_lines.filter(l => l.invoice_id !== args.p_id);
+          return { data: null, error: null };
+        }
         if (me !== 'admin') return { data: null, error: { code: '42501', message: 'Only admins can change the delivery order' } };
         args.store_ids.forEach((id, i) => {
           const s = db.stores.find(x => x.id === id);

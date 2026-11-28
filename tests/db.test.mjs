@@ -219,5 +219,61 @@ ok('admin reorders', !(await as(db, 'admin', 'select public.reorder_stores(array
 const pub = (await db.query(`select string_agg(tablename, ',' order by tablename) t from pg_publication_tables where pubname = 'supabase_realtime'`)).rows[0].t;
 ok('realtime on the 7 shared tables', pub === 'deliveries,order_item_prices,order_items,prices,production,products,stores', pub);
 
+// ═══ Invoices ═══
+// Orders now: today store 7 = 6 × 6 Pack @ $13; store 8 = 2 × 6 Pack @ $13 + 3 × 9 Pack (no price);
+// yesterday store 8 = 1 × 6 Pack. Charges: fuel levy $2, freight $5 under $50.
+const issue = (who, date, ids = null) => as(db, who, `select id::int, store_id::int s, number, subtotal::float8 sub, freight::float8 fr,
+  fuel_levy::float8 fl, total::float8 t, payment_mode from public.issue_invoices($1, $2) order by store_id`, [date, ids]);
+ok('no cut-over date: nothing is issued', (await issue('admin', today)).rows?.length === 0);
+ok('admin sets the cut-over date', !(await as(db, 'admin', `update public.business_settings set accounts_start = $1 where id = 1`, [today])).error);
+ok('before the cut-over: nothing is issued', (await issue('admin', yesterday)).rows?.length === 0
+  && (await db.query('select count(*)::int n from public.invoices')).rows[0].n === 0);
+const iss = await issue('driver', today);
+ok('driver printing issues the day\'s invoices', iss.rows?.length === 2, iss);
+const i7 = iss.rows.find(r => r.s === 7), i8 = iss.rows.find(r => r.s === 8);
+ok('saved totals: products, freight under $50, fuel levy', i7.sub === 78 && i7.fr === 0 && i7.fl === 2 && i7.t === 80
+  && i8.sub === 26 && i8.fr === 5 && i8.fl === 2 && i8.t === 33, iss.rows);
+ok('invoice number = YYMMDD-store, payment mode copied', i7.number === `${today.slice(2).replaceAll('-', '')}-007` && i7.payment_mode === 'cash', i7);
+const lines8 = (await as(db, 'baker', `select product_name, qty, unit_price::float8 u, amount::float8 a from public.invoice_lines where invoice_id = $1 order by product_id`, [i8.id])).rows;
+ok('lines copied (name, qty, price; no price = null, $0)', JSON.stringify(lines8) === JSON.stringify(
+  [{ product_name: '6 Pack', qty: 2, u: 13, a: 26 }, { product_name: '9 Pack', qty: 3, u: null, a: 0 }]), lines8);
+await as(db, 'admin', upQty, [today, 7, 1, 20]);
+await as(db, 'admin', `update public.products set name = 'Six Pack' where id = 1`);
+const again = await issue('admin', today);
+ok('issued invoice ignores later order changes', again.rows.find(r => r.s === 7).t === 80 && again.rows.find(r => r.s === 7).id === i7.id);
+ok('issued line keeps the old product name', (await db.query(`select product_name from public.invoice_lines where invoice_id = $1 and product_id = 1`, [i8.id])).rows[0].product_name === '6 Pack');
+await as(db, 'admin', `update public.products set name = '6 Pack' where id = 1`);
+ok('no-role account cannot issue', !!(await issue('nobody', today)).error);
+ok('nobody writes invoices directly', !!(await as(db, 'admin', `insert into public.invoices (store_id, delivery_date, number, subtotal, total) values (7, $1, 'x', 0, 0)`, [yesterday])).error
+  && !!(await as(db, 'admin', `update public.invoices set total = 0 where id = $1`, [i7.id])).error
+  && !!(await as(db, 'baker', `delete from public.invoice_lines where invoice_id = $1`, [i8.id])).error);
+ok('every role reads invoices; no role reads none', await count('driver', 'select * from public.invoices') === 2
+  && await count('baker', 'select * from public.invoice_lines') === 3 && await count('nobody', 'select * from public.invoices') === 0);
+
+// Credits
+const addCredit = `insert into public.invoice_credits (store_id, delivery_date, amount, reason) values ($1, $2, $3, $4) returning id::int`;
+const cr = await as(db, 'baker', addCredit, [7, today, 5, '2 packs returned']);
+ok('baker gives a credit', !cr.error && cr.rows.length === 1, cr);
+ok('credit stamped with the baker', (await db.query('select updated_by from public.invoice_credits')).rows[0].updated_by === U.baker);
+ok('driver cannot give a credit', !!(await as(db, 'driver', addCredit, [7, today, 5, 'x'])).error);
+ok('credit must be more than $0', !!(await as(db, 'admin', addCredit, [7, today, 0, 'x'])).error);
+ok('credits cannot be edited', !!(await as(db, 'admin', `update public.invoice_credits set amount = 1`)).error);
+const bd = await as(db, 'baker', `delete from public.invoice_credits returning id`);
+ok('baker cannot remove a credit', !bd.error && bd.rows.length === 0);
+
+// Unlock
+ok('baker cannot unlock', /Only admins/.test((await as(db, 'baker', 'select public.unlock_invoice($1)', [i7.id])).error || ''));
+ok('admin unlocks', !(await as(db, 'admin', 'select public.unlock_invoice($1)', [i7.id])).error
+  && (await db.query('select count(*)::int n from public.invoices where store_id = 7')).rows[0].n === 0);
+ok('unlocking keeps the credit', (await db.query('select count(*)::int n from public.invoice_credits where store_id = 7')).rows[0].n === 1);
+const re = await issue('admin', today, [7]);
+ok('re-issued invoice follows the changed order (20 × $13 + $2 levy)', re.rows?.length === 1 && re.rows[0].t === 262, re.rows);
+ok('admin removes a credit', (await as(db, 'admin', `delete from public.invoice_credits returning id`)).rows?.length === 1);
+
+// Order value per store and day (not-issued invoices, changed orders)
+const sdt = async who => (await as(db, who, `select store_id::int s, subtotal::float8 sub, unpriced from public.store_day_totals($1, $1) order by 1`, [today])).rows;
+ok('store_day_totals: admin and baker', JSON.stringify(await sdt('baker')) === JSON.stringify([{ s: 7, sub: 260, unpriced: 0 }, { s: 8, sub: 26, unpriced: 1 }]), await sdt('baker'));
+ok('store_day_totals: not for drivers', (await sdt('driver')).length === 0);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
